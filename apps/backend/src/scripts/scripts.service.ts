@@ -1,56 +1,52 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { CreateScriptDto } from './dto/create-script.dto';
 import { ScriptResponseDto } from './dto/script-response.dto';
-
-export interface Script {
-  id: string;
-  name: string;
-  content: string;
-  description?: string;
-  url?: string;
-  trustScore?: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
+import { Script, ScriptDocument } from './schemas/script.schema';
 
 @Injectable()
 export class ScriptsService {
-  private scripts: Map<string, Script> = new Map();
+  constructor(
+    @InjectModel(Script.name) private scriptModel: Model<ScriptDocument>,
+  ) {}
 
-  findAll(): ScriptResponseDto[] {
-    return Array.from(this.scripts.values());
+  async findAll(): Promise<ScriptResponseDto[]> {
+    const scripts = await this.scriptModel.find().exec();
+    return scripts.map((script) => this.toResponseDto(script));
   }
 
-  findOne(id: string): ScriptResponseDto {
-    const script = this.scripts.get(id);
+  async findOne(id: string): Promise<ScriptResponseDto> {
+    const script = await this.scriptModel.findById(id).exec();
     if (!script) {
       throw new NotFoundException(`Script with ID ${id} not found`);
     }
-    return script;
+    return this.toResponseDto(script);
   }
 
-  create(createScriptDto: CreateScriptDto): ScriptResponseDto {
-    const now = new Date();
-    const script: Script = {
-      id: randomUUID(),
-      name: createScriptDto.name,
-      content: createScriptDto.content,
-      description: createScriptDto.description,
-      url: createScriptDto.url,
-      createdAt: now,
-      updatedAt: now,
+  async create(createScriptDto: CreateScriptDto): Promise<ScriptResponseDto> {
+    const createdScript = new this.scriptModel(createScriptDto);
+    const savedScript = await createdScript.save();
+    return this.toResponseDto(savedScript);
+  }
+
+  async delete(id: string): Promise<void> {
+    const result = await this.scriptModel.findByIdAndDelete(id).exec();
+    if (!result) {
+      throw new NotFoundException(`Script with ID ${id} not found`);
+    }
+  }
+
+  private toResponseDto(script: ScriptDocument): ScriptResponseDto {
+    return {
+      id: script._id.toString(),
+      name: script.name,
+      content: script.content,
+      description: script.description,
+      url: script.url,
+      trustScore: script.trustScore,
+      createdAt: script.createdAt!,
+      updatedAt: script.updatedAt!,
     };
-
-    this.scripts.set(script.id, script);
-    return script;
-  }
-
-  delete(id: string): void {
-    const script = this.scripts.get(id);
-    if (!script) {
-      throw new NotFoundException(`Script with ID ${id} not found`);
-    }
-    this.scripts.delete(id);
   }
 }

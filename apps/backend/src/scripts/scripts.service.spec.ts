@@ -1,17 +1,50 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
+import { getModelToken } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 import { ScriptsService } from './scripts.service';
 import { CreateScriptDto } from './dto/create-script.dto';
+import { Script, ScriptDocument } from './schemas/script.schema';
 
 describe('ScriptsService', () => {
   let service: ScriptsService;
+  let model: Model<ScriptDocument>;
+
+  const mockScript = (override = {}) => ({
+    _id: '507f1f77bcf86cd799439011',
+    name: 'Test Script',
+    content: '#!/bin/bash\necho "Hello World"',
+    description: 'A test script',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...override,
+  });
+
+  const mockModel = {
+    new: jest.fn(),
+    constructor: jest.fn(),
+    find: jest.fn(),
+    findById: jest.fn(),
+    findByIdAndDelete: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
+    exec: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      providers: [ScriptsService],
+      providers: [
+        ScriptsService,
+        {
+          provide: getModelToken(Script.name),
+          useValue: mockModel,
+        },
+      ],
     }).compile();
 
     service = module.get<ScriptsService>(ScriptsService);
+    model = module.get<Model<ScriptDocument>>(getModelToken(Script.name));
+    jest.clearAllMocks();
   });
 
   it('should be defined', () => {
@@ -19,142 +52,105 @@ describe('ScriptsService', () => {
   });
 
   describe('create', () => {
-    it('should create a new script with UUID', () => {
-      const createScriptDto: CreateScriptDto = {
+    it('should create a new script', async () => {
+      const createDto: CreateScriptDto = {
         name: 'Test Script',
         content: '#!/bin/bash\necho "Hello World"',
         description: 'A test script',
       };
 
-      const result = service.create(createScriptDto);
+      const savedScript = mockScript();
+      const saveMock = jest.fn().mockResolvedValue(savedScript);
+
+      jest.spyOn(model, 'constructor' as any).mockImplementation(() => ({
+        save: saveMock,
+      }));
+
+      // Mock the model constructor to return an object with a save method
+      (mockModel as any).mockImplementation(() => ({
+        save: saveMock,
+      }));
+
+      const result = await service.create(createDto);
 
       expect(result).toBeDefined();
-      expect(result.id).toBeDefined();
-      expect(result.name).toBe(createScriptDto.name);
-      expect(result.content).toBe(createScriptDto.content);
-      expect(result.description).toBe(createScriptDto.description);
-      expect(result.createdAt).toBeInstanceOf(Date);
-      expect(result.updatedAt).toBeInstanceOf(Date);
-    });
-
-    it('should create script with optional url', () => {
-      const createScriptDto: CreateScriptDto = {
-        name: 'Remote Script',
-        content: '#!/bin/bash\necho "test"',
-        url: 'https://example.com/script.sh',
-      };
-
-      const result = service.create(createScriptDto);
-
-      expect(result.url).toBe(createScriptDto.url);
-    });
-
-    it('should generate unique IDs for different scripts', () => {
-      const dto: CreateScriptDto = {
-        name: 'Script',
-        content: 'content',
-      };
-
-      const script1 = service.create(dto);
-      const script2 = service.create(dto);
-
-      expect(script1.id).not.toBe(script2.id);
+      expect(result.name).toBe(savedScript.name);
+      expect(result.content).toBe(savedScript.content);
     });
   });
 
   describe('findAll', () => {
-    it('should return empty array initially', () => {
-      const result = service.findAll();
-      expect(result).toEqual([]);
+    it('should return an array of scripts', async () => {
+      const scripts = [mockScript(), mockScript({ _id: 'another-id', name: 'Another Script' })];
+
+      mockModel.find.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(scripts),
+      });
+
+      const result = await service.findAll();
+
+      expect(result).toHaveLength(2);
+      expect(mockModel.find).toHaveBeenCalled();
     });
 
-    it('should return all created scripts', () => {
-      const dto1: CreateScriptDto = {
-        name: 'Script 1',
-        content: 'content 1',
-      };
-      const dto2: CreateScriptDto = {
-        name: 'Script 2',
-        content: 'content 2',
-      };
+    it('should return empty array when no scripts exist', async () => {
+      mockModel.find.mockReturnValue({
+        exec: jest.fn().mockResolvedValue([]),
+      });
 
-      service.create(dto1);
-      service.create(dto2);
+      const result = await service.findAll();
 
-      const result = service.findAll();
-      expect(result).toHaveLength(2);
-      expect(result[0].name).toBe('Script 1');
-      expect(result[1].name).toBe('Script 2');
+      expect(result).toEqual([]);
     });
   });
 
   describe('findOne', () => {
-    it('should return a script by ID', () => {
-      const dto: CreateScriptDto = {
-        name: 'Test Script',
-        content: 'test content',
-      };
+    it('should return a script by ID', async () => {
+      const script = mockScript();
 
-      const created = service.create(dto);
-      const found = service.findOne(created.id);
+      mockModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(script),
+      });
 
-      expect(found).toBeDefined();
-      expect(found.id).toBe(created.id);
-      expect(found.name).toBe(dto.name);
+      const result = await service.findOne(script._id);
+
+      expect(result).toBeDefined();
+      expect(result.id).toBe(script._id);
+      expect(mockModel.findById).toHaveBeenCalledWith(script._id);
     });
 
-    it('should throw NotFoundException for non-existent ID', () => {
-      expect(() => {
-        service.findOne('non-existent-id');
-      }).toThrow(NotFoundException);
-    });
+    it('should throw NotFoundException for non-existent ID', async () => {
+      mockModel.findById.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
 
-    it('should throw NotFoundException with proper message', () => {
-      const id = 'test-id-123';
-      expect(() => {
-        service.findOne(id);
-      }).toThrow(`Script with ID ${id} not found`);
+      await expect(service.findOne('non-existent-id')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   describe('delete', () => {
-    it('should delete a script by ID', () => {
-      const dto: CreateScriptDto = {
-        name: 'To Delete',
-        content: 'content',
-      };
+    it('should delete a script by ID', async () => {
+      const script = mockScript();
 
-      const created = service.create(dto);
-      expect(service.findAll()).toHaveLength(1);
+      mockModel.findByIdAndDelete.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(script),
+      });
 
-      service.delete(created.id);
-      expect(service.findAll()).toHaveLength(0);
+      await service.delete(script._id);
+
+      expect(mockModel.findByIdAndDelete).toHaveBeenCalledWith(script._id);
     });
 
-    it('should throw NotFoundException when deleting non-existent script', () => {
-      expect(() => {
-        service.delete('non-existent-id');
-      }).toThrow(NotFoundException);
-    });
+    it('should throw NotFoundException when deleting non-existent script', async () => {
+      mockModel.findByIdAndDelete.mockReturnValue({
+        exec: jest.fn().mockResolvedValue(null),
+      });
 
-    it('should not affect other scripts when deleting one', () => {
-      const dto1: CreateScriptDto = {
-        name: 'Script 1',
-        content: 'content 1',
-      };
-      const dto2: CreateScriptDto = {
-        name: 'Script 2',
-        content: 'content 2',
-      };
-
-      const script1 = service.create(dto1);
-      const script2 = service.create(dto2);
-
-      service.delete(script1.id);
-
-      const remaining = service.findAll();
-      expect(remaining).toHaveLength(1);
-      expect(remaining[0].id).toBe(script2.id);
+      await expect(service.delete('non-existent-id')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

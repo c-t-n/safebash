@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  mongodb:
+    image: mongo:7
+    container_name: safebash-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_DATABASE=safebash
+    networks:
+      - safebash-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/safebash --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: .
@@ -15,8 +32,12 @@ services:
       - NODE_ENV=development
       - PORT=3001
       - CORS_ORIGIN=http://localhost:5173
+      - MONGODB_URI=mongodb://mongodb:27017/safebash
     networks:
       - safebash-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
     command: npm run backend:dev
 
   frontend:
@@ -41,3 +62,6 @@ services:
 networks:
   safebash-network:
     driver: bridge
+
+volumes:
+  mongodb_data:

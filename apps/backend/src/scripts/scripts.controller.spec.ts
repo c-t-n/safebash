@@ -52,75 +52,73 @@ describe('ScriptsController', () => {
   });
 
   describe('findAll', () => {
-    it('should return an array of scripts', () => {
+    it('should return an array of scripts', async () => {
       const result: ScriptResponseDto[] = [mockScriptResponse];
-      jest.spyOn(scriptsService, 'findAll').mockReturnValue(result);
+      jest.spyOn(scriptsService, 'findAll').mockResolvedValue(result);
 
-      expect(controller.findAll()).toBe(result);
+      expect(await controller.findAll()).toBe(result);
       expect(scriptsService.findAll).toHaveBeenCalled();
     });
 
-    it('should return empty array when no scripts exist', () => {
-      jest.spyOn(scriptsService, 'findAll').mockReturnValue([]);
+    it('should return empty array when no scripts exist', async () => {
+      jest.spyOn(scriptsService, 'findAll').mockResolvedValue([]);
 
-      expect(controller.findAll()).toEqual([]);
+      expect(await controller.findAll()).toEqual([]);
     });
   });
 
   describe('findOne', () => {
-    it('should return a single script by ID', () => {
-      jest.spyOn(scriptsService, 'findOne').mockReturnValue(mockScriptResponse);
+    it('should return a single script by ID', async () => {
+      jest.spyOn(scriptsService, 'findOne').mockResolvedValue(mockScriptResponse);
 
-      const result = controller.findOne(mockScriptResponse.id);
+      const result = await controller.findOne(mockScriptResponse.id);
 
       expect(result).toBe(mockScriptResponse);
       expect(scriptsService.findOne).toHaveBeenCalledWith(mockScriptResponse.id);
     });
 
-    it('should throw NotFoundException for invalid ID', () => {
+    it('should throw NotFoundException for invalid ID', async () => {
       const invalidId = 'invalid-id';
       jest
         .spyOn(scriptsService, 'findOne')
-        .mockImplementation(() => {
-          throw new NotFoundException(`Script with ID ${invalidId} not found`);
-        });
+        .mockRejectedValue(new NotFoundException(`Script with ID ${invalidId} not found`));
 
-      expect(() => controller.findOne(invalidId)).toThrow(NotFoundException);
+      await expect(controller.findOne(invalidId)).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('create', () => {
-    it('should create a new script', () => {
+    it('should create a new script', async () => {
       const createDto: CreateScriptDto = {
         name: 'New Script',
         content: '#!/bin/bash\necho "new"',
         description: 'New script description',
       };
 
-      jest.spyOn(scriptsService, 'create').mockReturnValue(mockScriptResponse);
+      jest.spyOn(scriptsService, 'create').mockResolvedValue(mockScriptResponse);
 
-      const result = controller.create(createDto);
+      const result = await controller.create(createDto);
 
       expect(result).toBe(mockScriptResponse);
       expect(scriptsService.create).toHaveBeenCalledWith(createDto);
     });
 
-    it('should create script without optional fields', () => {
+    it('should create script without optional fields', async () => {
       const createDto: CreateScriptDto = {
         name: 'Minimal Script',
         content: '#!/bin/bash',
       };
 
       const minimalResponse = { ...mockScriptResponse, description: undefined };
-      jest.spyOn(scriptsService, 'create').mockReturnValue(minimalResponse);
+      jest.spyOn(scriptsService, 'create').mockResolvedValue(minimalResponse);
 
-      const result = controller.create(createDto);
+      const result = await controller.create(createDto);
 
       expect(result.description).toBeUndefined();
       expect(scriptsService.create).toHaveBeenCalledWith(createDto);
     });
 
-    it('should create script with URL', () => {
+    it('should create script with URL', async () => {
       const createDto: CreateScriptDto = {
         name: 'Remote Script',
         content: '#!/bin/bash',
@@ -128,33 +126,31 @@ describe('ScriptsController', () => {
       };
 
       const responseWithUrl = { ...mockScriptResponse, url: createDto.url };
-      jest.spyOn(scriptsService, 'create').mockReturnValue(responseWithUrl);
+      jest.spyOn(scriptsService, 'create').mockResolvedValue(responseWithUrl);
 
-      const result = controller.create(createDto);
+      const result = await controller.create(createDto);
 
       expect(result.url).toBe(createDto.url);
     });
   });
 
   describe('delete', () => {
-    it('should delete a script by ID', () => {
+    it('should delete a script by ID', async () => {
       const scriptId = mockScriptResponse.id;
-      jest.spyOn(scriptsService, 'delete').mockImplementation();
+      jest.spyOn(scriptsService, 'delete').mockResolvedValue(undefined);
 
-      controller.delete(scriptId);
+      await controller.delete(scriptId);
 
       expect(scriptsService.delete).toHaveBeenCalledWith(scriptId);
     });
 
-    it('should throw NotFoundException when deleting non-existent script', () => {
+    it('should throw NotFoundException when deleting non-existent script', async () => {
       const invalidId = 'non-existent-id';
       jest
         .spyOn(scriptsService, 'delete')
-        .mockImplementation(() => {
-          throw new NotFoundException(`Script with ID ${invalidId} not found`);
-        });
+        .mockRejectedValue(new NotFoundException(`Script with ID ${invalidId} not found`));
 
-      expect(() => controller.delete(invalidId)).toThrow(NotFoundException);
+      await expect(controller.delete(invalidId)).rejects.toThrow(NotFoundException);
     });
   });
 

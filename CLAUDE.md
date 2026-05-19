@@ -101,9 +101,14 @@ docker-compose logs -f frontend
 ```
 
 **Docker Services:**
+- **mongodb**: MongoDB 7 database on port 27017
+  - Persistent data storage via `mongodb_data` volume
+  - Health check enabled for reliable startup
 - **backend**: NestJS API on port 3001
+  - Depends on mongodb service
+  - Auto-connects to MongoDB via `MONGODB_URI` environment variable
 - **frontend**: React app on port 5173
-- Both services have hot-reload enabled via volume mounts
+- All services have hot-reload enabled via volume mounts (backend/frontend)
 - Services communicate via `safebash-network` bridge network
 
 **Requirements:**
@@ -128,8 +133,16 @@ docker-compose logs -f frontend
     - `ScriptResponseDto`: Standardized script response format
 
 ### Data Storage
-- **In-Memory Storage**: Scripts stored in a Map with UUID keys
-- **UUID Generation**: Uses Node.js `crypto.randomUUID()` for unique IDs
+- **MongoDB**: Scripts persisted in MongoDB database
+- **Mongoose ODM**: Object modeling with schema validation
+- **Schema Fields**:
+  - `name` (required): Script name
+  - `content` (required): Bash script content
+  - `description` (optional): Script description
+  - `url` (optional): Source URL
+  - `trustScore` (optional): Calculated trust score
+  - `createdAt`, `updatedAt`: Automatic timestamps
+- **ID Management**: MongoDB ObjectId used as primary key
 - **Validation**: Automatic request validation using `class-validator`
   - Required fields: `name`, `content`
   - Optional fields: `description`, `url`
@@ -155,8 +168,12 @@ Base URL: `http://localhost:3001/api`
 
 ### Configuration
 - Environment variables: Copy `apps/backend/.env.example` to `apps/backend/.env`
+  - `PORT`: API server port (default: 3001)
+  - `CORS_ORIGIN`: Allowed frontend origin
+  - `MONGODB_URI`: MongoDB connection string (default: mongodb://localhost:27017/safebash)
 - Default port: 3001
 - CORS enabled for frontend (http://localhost:5173)
+- MongoDB must be running for the backend to start
 
 ## Frontend Architecture (React + Vite)
 

@@ -12,25 +12,25 @@ export class ScriptsController {
   ) {}
 
   @Get()
-  findAll(): ScriptResponseDto[] {
+  async findAll(): Promise<ScriptResponseDto[]> {
     return this.scriptsService.findAll();
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string): ScriptResponseDto {
+  async findOne(@Param('id') id: string): Promise<ScriptResponseDto> {
     return this.scriptsService.findOne(id);
   }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() createScriptDto: CreateScriptDto): ScriptResponseDto {
+  async create(@Body() createScriptDto: CreateScriptDto): Promise<ScriptResponseDto> {
     return this.scriptsService.create(createScriptDto);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  delete(@Param('id') id: string): void {
-    this.scriptsService.delete(id);
+  async delete(@Param('id') id: string): Promise<void> {
+    return this.scriptsService.delete(id);
   }
 
   @Post('analyze')
