@@ -1,6 +1,8 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
 import { ScriptsService } from './scripts.service';
 import { AnalysisService } from './analysis.service';
+import { CreateScriptDto } from './dto/create-script.dto';
+import { ScriptResponseDto } from './dto/script-response.dto';
 
 @Controller('scripts')
 export class ScriptsController {
@@ -10,13 +12,25 @@ export class ScriptsController {
   ) {}
 
   @Get()
-  findAll() {
+  findAll(): ScriptResponseDto[] {
     return this.scriptsService.findAll();
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id') id: string): ScriptResponseDto {
     return this.scriptsService.findOne(id);
+  }
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  create(@Body() createScriptDto: CreateScriptDto): ScriptResponseDto {
+    return this.scriptsService.create(createScriptDto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  delete(@Param('id') id: string): void {
+    this.scriptsService.delete(id);
   }
 
   @Post('analyze')

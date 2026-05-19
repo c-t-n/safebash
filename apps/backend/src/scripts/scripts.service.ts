@@ -1,28 +1,56 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { CreateScriptDto } from './dto/create-script.dto';
+import { ScriptResponseDto } from './dto/script-response.dto';
 
 export interface Script {
   id: string;
-  url: string;
   name: string;
+  content: string;
   description?: string;
+  url?: string;
   trustScore?: number;
-  analyzedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 @Injectable()
 export class ScriptsService {
-  private scripts: Script[] = [];
+  private scripts: Map<string, Script> = new Map();
 
-  findAll(): Script[] {
-    return this.scripts;
+  findAll(): ScriptResponseDto[] {
+    return Array.from(this.scripts.values());
   }
 
-  findOne(id: string): Script | undefined {
-    return this.scripts.find((script) => script.id === id);
-  }
-
-  create(script: Script): Script {
-    this.scripts.push(script);
+  findOne(id: string): ScriptResponseDto {
+    const script = this.scripts.get(id);
+    if (!script) {
+      throw new NotFoundException(`Script with ID ${id} not found`);
+    }
     return script;
+  }
+
+  create(createScriptDto: CreateScriptDto): ScriptResponseDto {
+    const now = new Date();
+    const script: Script = {
+      id: randomUUID(),
+      name: createScriptDto.name,
+      content: createScriptDto.content,
+      description: createScriptDto.description,
+      url: createScriptDto.url,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.scripts.set(script.id, script);
+    return script;
+  }
+
+  delete(id: string): void {
+    const script = this.scripts.get(id);
+    if (!script) {
+      throw new NotFoundException(`Script with ID ${id} not found`);
+    }
+    this.scripts.delete(id);
   }
 }

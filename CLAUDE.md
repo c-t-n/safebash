@@ -121,16 +121,37 @@ docker-compose logs -f frontend
 - **AppModule**: Root module with health check endpoint
 - **ScriptsModule**: Core functionality for script management and analysis
   - `ScriptsController`: REST endpoints for script operations
-  - `ScriptsService`: Business logic for script storage
+  - `ScriptsService`: Business logic for script storage (in-memory Map)
   - `AnalysisService`: Bash script security analysis
+  - `dto/`: Data Transfer Objects with validation
+    - `CreateScriptDto`: Validates script upload requests
+    - `ScriptResponseDto`: Standardized script response format
+
+### Data Storage
+- **In-Memory Storage**: Scripts stored in a Map with UUID keys
+- **UUID Generation**: Uses Node.js `crypto.randomUUID()` for unique IDs
+- **Validation**: Automatic request validation using `class-validator`
+  - Required fields: `name`, `content`
+  - Optional fields: `description`, `url`
+  - URL validation for optional `url` field
 
 ### API Endpoints
 Base URL: `http://localhost:3001/api`
 
-- `GET /api/health` - Health check
-- `GET /api/scripts` - List all scripts
-- `GET /api/scripts/:id` - Get single script
-- `POST /api/scripts/analyze` - Analyze a bash script URL
+**Health Check:**
+- `GET /api/health` - Health check endpoint
+
+**Script Management:**
+- `GET /api/scripts` - List all stored scripts
+- `GET /api/scripts/:id` - Get a single script by ID
+- `POST /api/scripts` - Upload a new bash script
+  - Body: `{ name: string, content: string, description?: string, url?: string }`
+  - Returns: Script object with generated UUID
+- `DELETE /api/scripts/:id` - Delete a script by ID
+
+**Script Analysis:**
+- `POST /api/scripts/analyze` - Analyze a bash script from URL
+  - Body: `{ url: string }`
 
 ### Configuration
 - Environment variables: Copy `apps/backend/.env.example` to `apps/backend/.env`
