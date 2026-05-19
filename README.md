@@ -20,8 +20,13 @@ SafeBash is a web application designed to analyze, store, and make trustable app
 
 ### Prerequisites
 
+**Option 1: Local Development**
 - Node.js >= 18.0.0
 - npm >= 9.0.0
+
+**Option 2: Docker Development**
+- Docker
+- Docker Compose
 
 ### Installation
 
@@ -57,6 +62,26 @@ npm run dev
 The application will be available at:
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3001/api
+
+### Running with Docker
+
+Alternatively, you can use Docker Compose to run the development environment:
+
+```bash
+# Start all services
+docker-compose up
+
+# Start in detached mode
+docker-compose up -d
+
+# Stop all services
+docker-compose down
+
+# View logs
+docker-compose logs -f
+```
+
+The application will be available at the same URLs as above.
 
 ### Development
 

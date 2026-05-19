@@ -78,6 +78,41 @@ npm install <package> -w @safebash/backend
 npm install <package> -w @safebash/frontend
 ```
 
+### Docker Development Environment
+```bash
+# Start both services with Docker Compose
+docker-compose up
+
+# Start in detached mode
+docker-compose up -d
+
+# Rebuild containers
+docker-compose up --build
+
+# Stop all services
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# View logs for specific service
+docker-compose logs -f backend
+docker-compose logs -f frontend
+```
+
+**Docker Services:**
+- **backend**: NestJS API on port 3001
+- **frontend**: React app on port 5173
+- Both services have hot-reload enabled via volume mounts
+- Services communicate via `safebash-network` bridge network
+
+**Requirements:**
+- Docker and Docker Compose installed
+- Copy `.env.example` files before starting:
+  ```bash
+  cp apps/backend/.env.example apps/backend/.env
+  ```
+
 ## Backend Architecture (NestJS)
 
 **Location**: `apps/backend/`
@@ -213,3 +248,5 @@ Optional variables (see `apps/frontend/.env.example`):
 4. **Port Conflicts**: Backend (3001) and frontend (5173) must not conflict with other services.
 
 5. **CORS Configuration**: Update `CORS_ORIGIN` in backend if frontend URL changes.
+
+6. **Docker Development**: Use `docker-compose up` for containerized development. Hot-reload is enabled via volume mounts. Ensure `.env` files are configured before starting containers.
