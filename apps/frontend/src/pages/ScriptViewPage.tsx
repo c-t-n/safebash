@@ -55,16 +55,23 @@ function VocabTabs({ value, onChange }: { value: Vocab; onChange: (v: Vocab) => 
   );
 }
 
+function lineLabel(l: LineExplanation): string {
+  return l.endLineNumber && l.endLineNumber !== l.lineNumber
+    ? `${l.lineNumber}–${l.endLineNumber}`
+    : String(l.lineNumber);
+}
+
 function LineRows({ lines, vocab }: { lines: LineExplanation[]; vocab: Vocab }) {
+  const visible = lines.filter((l) => l.source !== 'empty');
   return (
     <div className="line-table">
-      {lines.map((l) => (
+      {visible.map((l) => (
         <div
           key={l.lineNumber}
           className={`line-row${l.source === 'unknown' ? ' line-unknown' : ''}`}
         >
-          <span className="line-number">{l.lineNumber}</span>
-          <code className="line-content">{l.content || ' '}</code>
+          <span className="line-number">{lineLabel(l)}</span>
+          <pre className="line-content">{l.content || ' '}</pre>
           <span className="line-explanation">{l[vocab]}</span>
         </div>
       ))}
@@ -173,7 +180,7 @@ export default function ScriptViewPage() {
             </section>
           )}
 
-          {lines && lines.length > 0 && (
+          {lines && lines.some((l) => l.source !== 'empty') && (
             <section className="section">
               <h2 className="section-title">line by line</h2>
               <LineRows lines={lines} vocab={vocab} />

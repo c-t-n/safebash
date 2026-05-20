@@ -64,6 +64,35 @@ describe('ExplainerService', () => {
       const result = await service.explain('frobnicate the gizmo');
       expect(result.summary.tech).toMatch(/No recognised commands/);
     });
+
+    it('folds backslash continuations into a single logical line', async () => {
+      const script = [
+        '#!/bin/bash',
+        'apt-get install -y \\',
+        '  nginx \\',
+        '  curl',
+        'echo done',
+      ].join('\n');
+
+      const result = await service.explain(script);
+
+      // shebang, the folded apt-get block, echo
+      expect(result.lines).toHaveLength(3);
+      const apt = result.lines[1];
+      expect(apt.lineNumber).toBe(2);
+      expect(apt.endLineNumber).toBe(4);
+      expect(apt.source).toBe('dict');
+      // The first captured package name is what the dictionary template uses
+      expect(apt.tech).toContain('nginx');
+      expect(apt.content).toContain('\n'); // preserves original multi-line form
+    });
+
+    it('does not fold when the trailing backslash is escaped', async () => {
+      const script = ['echo first\\\\', 'echo second'].join('\n');
+      const result = await service.explain(script);
+      expect(result.lines).toHaveLength(2);
+      expect(result.lines[0].endLineNumber).toBeUndefined();
+    });
   });
 
   describe('hybrid path (LLM available)', () => {

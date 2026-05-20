@@ -15,6 +15,7 @@ export interface ScriptSummary {
 
 export interface LineExplanation {
   lineNumber: number;
+  endLineNumber?: number;
   content: string;
   tech: string;
   plain: string;

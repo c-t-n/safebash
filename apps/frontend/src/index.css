@@ -290,6 +290,7 @@ a:hover { text-decoration: underline; }
 .line-content {
   font-family: var(--font); color: var(--text);
   white-space: pre; overflow-x: auto;
+  margin: 0; font-size: inherit; line-height: 1.55;
 }
 .line-explanation { color: var(--text); line-height: 1.55; }
 .line-unknown .line-explanation { color: var(--text-muted); font-style: italic; }
