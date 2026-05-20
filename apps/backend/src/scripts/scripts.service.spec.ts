@@ -13,6 +13,16 @@ const mockAnalysis: AnalysisResult = {
   warnings: ['Uses sudo for elevated privileges'],
   safePatterns: ['Has proper shebang line', 'Exits on command failure (set -e)'],
   analyzedAt: new Date('2024-01-01'),
+  summary: { tech: 'Test summary (tech).', plain: 'Test summary (plain).' },
+  lines: [
+    {
+      lineNumber: 1,
+      content: '#!/bin/bash',
+      tech: 'Shebang.',
+      plain: 'Runs as a shell script.',
+      source: 'dict',
+    },
+  ],
 };
 
 const scriptId = new Types.ObjectId().toString();
@@ -149,7 +159,7 @@ describe('ScriptsService', () => {
       const doc = makeScriptDoc();
       const version = makeVersionDoc();
       saveMock.mockResolvedValue(doc);
-      analysisService.analyze.mockReturnValue(mockAnalysis);
+      analysisService.analyze.mockResolvedValue(mockAnalysis);
       versionsService.create.mockResolvedValue(version as any);
       versionsService.findLatest.mockResolvedValue(version as any);
 
@@ -174,7 +184,7 @@ describe('ScriptsService', () => {
       const doc = makeScriptDoc({ currentVersionNumber: 1 });
       const newVersion = makeVersionDoc({ versionNumber: 2, content: '#!/bin/bash\necho v2' });
       mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
-      analysisService.analyze.mockReturnValue(mockAnalysis);
+      analysisService.analyze.mockResolvedValue(mockAnalysis);
       versionsService.create.mockResolvedValue(newVersion as any);
 
       const result = await service.addVersion(scriptId, '#!/bin/bash\necho v2', ownerId);

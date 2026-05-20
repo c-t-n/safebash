@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import * as https from 'https';
 import * as http from 'http';
+import { ExplainerService, LineExplanation } from './explainer/explainer.service';
+import { ScriptSummary } from './explainer/llm.client';
 
 export interface AnalysisResult {
   trustScore: number;
@@ -8,6 +10,8 @@ export interface AnalysisResult {
   warnings: string[];
   safePatterns: string[];
   analyzedAt: Date;
+  summary: ScriptSummary;
+  lines: LineExplanation[];
 }
 
 interface Rule {
@@ -55,7 +59,9 @@ const SAFE_PATTERNS: Array<{ pattern: RegExp; message: string; bonus: number }> 
 
 @Injectable()
 export class AnalysisService {
-  analyze(content: string): AnalysisResult {
+  constructor(private readonly explainer: ExplainerService) {}
+
+  async analyze(content: string): Promise<AnalysisResult> {
     const risks: string[] = [];
     const warnings: string[] = [];
     const safePatterns: string[] = [];
@@ -84,13 +90,22 @@ export class AnalysisService {
     }
 
     const trustScore = Math.max(0, Math.min(100, 100 - penalty + Math.min(bonus, 20)));
+    const { summary, lines } = await this.explainer.explain(content);
 
-    return { trustScore, risks, warnings, safePatterns, analyzedAt: new Date() };
+    return {
+      trustScore,
+      risks,
+      warnings,
+      safePatterns,
+      analyzedAt: new Date(),
+      summary,
+      lines,
+    };
   }
 
   async analyzeFromUrl(url: string): Promise<AnalysisResult & { url: string }> {
     const content = await this.fetchContent(url);
-    return { url, ...this.analyze(content) };
+    return { url, ...(await this.analyze(content)) };
   }
 
   private fetchContent(url: string, redirectsLeft = 5): Promise<string> {

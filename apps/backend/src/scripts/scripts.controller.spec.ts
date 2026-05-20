@@ -14,6 +14,8 @@ const mockAnalysis: AnalysisResult = {
   warnings: [],
   safePatterns: ['Has proper shebang line'],
   analyzedAt: new Date('2024-01-01'),
+  summary: { tech: 'Test summary (tech).', plain: 'Test summary (plain).' },
+  lines: [],
 };
 
 const owner: JwtUser = { id: 'owner-id', email: 'owner@example.com' };
