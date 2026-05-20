@@ -3,31 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "description": "SafeBash - Secure and trustable bash script installations via curl | sh",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
-    "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
+    "dev": "pnpm -r run dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "backend:dev": "npm run dev -w @safebash/backend",
-    "frontend:dev": "npm run dev -w @safebash/frontend",
-    "backend:build": "npm run build -w @safebash/backend",
-    "frontend:build": "npm run build -w @safebash/frontend"
+    "backend:dev": "pnpm --filter @safebash/backend run dev",
+    "frontend:dev": "pnpm --filter @safebash/frontend run dev",
+    "backend:build": "pnpm --filter @safebash/backend run build",
+    "frontend:build": "pnpm --filter @safebash/frontend run build"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "eslint": "^8.56.0",
-    "eslint-config-prettier": "^9.1.0",
-    "prettier": "^3.2.5",
-    "typescript": "^5.3.3"
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^9.1.2",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=18.0.0",
-    "npm": ">=9.0.0"
+    "pnpm": ">=9.0.0"
   }
 }

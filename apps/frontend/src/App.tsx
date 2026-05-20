@@ -1,23 +1,35 @@
-import { Routes, Route } from 'react-router-dom';
-import HomePage from './pages/HomePage';
-import AnalyzePage from './pages/AnalyzePage';
-import './App.css';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import LoginPage from './pages/LoginPage';
+import SignupPage from './pages/SignupPage';
+import ScriptsPage from './pages/ScriptsPage';
+import ScriptCreatePage from './pages/ScriptCreatePage';
+import ScriptViewPage from './pages/ScriptViewPage';
 
-function App() {
+export default function App() {
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>SafeBash</h1>
-        <p>Secure and trustable bash script installations</p>
-      </header>
-      <main>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/analyze" element={<AnalyzePage />} />
-        </Routes>
-      </main>
-    </div>
+    <AuthProvider>
+      <Routes>
+        <Route path="/login"  element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+
+        <Route
+          path="/scripts"
+          element={<ProtectedRoute><ScriptsPage /></ProtectedRoute>}
+        />
+        <Route
+          path="/scripts/new"
+          element={<ProtectedRoute><ScriptCreatePage /></ProtectedRoute>}
+        />
+        <Route
+          path="/scripts/:id"
+          element={<ProtectedRoute><ScriptViewPage /></ProtectedRoute>}
+        />
+
+        {/* Catch-all: send unauthenticated users to login */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </AuthProvider>
   );
 }
-
-export default App;

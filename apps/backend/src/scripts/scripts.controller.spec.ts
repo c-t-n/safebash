@@ -1,24 +1,54 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ScriptsController } from './scripts.controller';
 import { ScriptsService } from './scripts.service';
-import { AnalysisService } from './analysis.service';
-import { CreateScriptDto } from './dto/create-script.dto';
+import { VersionsService } from './versions.service';
+import { AnalysisService, AnalysisResult } from './analysis.service';
 import { ScriptResponseDto } from './dto/script-response.dto';
+import { VersionResponseDto } from './dto/version-response.dto';
+import { JwtUser } from '../auth/strategies/jwt.strategy';
+
+const mockAnalysis: AnalysisResult = {
+  trustScore: 90,
+  risks: [],
+  warnings: [],
+  safePatterns: ['Has proper shebang line'],
+  analyzedAt: new Date('2024-01-01'),
+};
+
+const owner: JwtUser = { id: 'owner-id', email: 'owner@example.com' };
+const otherUser: JwtUser = { id: 'other-id', email: 'other@example.com' };
+
+const mockScript: ScriptResponseDto = {
+  id: '507f1f77bcf86cd799439011',
+  ownerId: owner.id,
+  name: 'Test Script',
+  description: 'A test script',
+  currentVersionNumber: 1,
+  latestVersion: {
+    versionNumber: 1,
+    content: '#!/bin/bash\nset -e\necho "hello"',
+    analysis: mockAnalysis,
+    createdAt: new Date('2024-01-01'),
+  },
+  createdAt: new Date('2024-01-01'),
+  updatedAt: new Date('2024-01-01'),
+};
+
+const mockVersion: VersionResponseDto = {
+  id: '507f1f77bcf86cd799439022',
+  scriptId: mockScript.id,
+  versionNumber: 1,
+  content: '#!/bin/bash\nset -e\necho "hello"',
+  analysis: mockAnalysis,
+  createdAt: new Date('2024-01-01'),
+};
 
 describe('ScriptsController', () => {
   let controller: ScriptsController;
-  let scriptsService: ScriptsService;
-  let analysisService: AnalysisService;
-
-  const mockScriptResponse: ScriptResponseDto = {
-    id: '123e4567-e89b-12d3-a456-426614174000',
-    name: 'Test Script',
-    content: '#!/bin/bash\necho "test"',
-    description: 'Test description',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
+  let scriptsService: jest.Mocked<ScriptsService>;
+  let versionsService: jest.Mocked<VersionsService>;
+  let analysisService: jest.Mocked<AnalysisService>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -29,22 +59,27 @@ describe('ScriptsController', () => {
           useValue: {
             findAll: jest.fn(),
             findOne: jest.fn(),
+            getRawContent: jest.fn(),
             create: jest.fn(),
+            addVersion: jest.fn(),
             delete: jest.fn(),
           },
         },
         {
+          provide: VersionsService,
+          useValue: { findAll: jest.fn(), findByNumber: jest.fn() },
+        },
+        {
           provide: AnalysisService,
-          useValue: {
-            analyzeScript: jest.fn(),
-          },
+          useValue: { analyze: jest.fn(), analyzeFromUrl: jest.fn() },
         },
       ],
     }).compile();
 
     controller = module.get<ScriptsController>(ScriptsController);
-    scriptsService = module.get<ScriptsService>(ScriptsService);
-    analysisService = module.get<AnalysisService>(AnalysisService);
+    scriptsService = module.get(ScriptsService);
+    versionsService = module.get(VersionsService);
+    analysisService = module.get(AnalysisService);
   });
 
   it('should be defined', () => {
@@ -52,126 +87,107 @@ describe('ScriptsController', () => {
   });
 
   describe('findAll', () => {
-    it('should return an array of scripts', async () => {
-      const result: ScriptResponseDto[] = [mockScriptResponse];
-      jest.spyOn(scriptsService, 'findAll').mockResolvedValue(result);
-
-      expect(await controller.findAll()).toBe(result);
-      expect(scriptsService.findAll).toHaveBeenCalled();
-    });
-
-    it('should return empty array when no scripts exist', async () => {
-      jest.spyOn(scriptsService, 'findAll').mockResolvedValue([]);
-
-      expect(await controller.findAll()).toEqual([]);
+    it('returns all scripts', async () => {
+      scriptsService.findAll.mockResolvedValue([mockScript]);
+      expect(await controller.findAll()).toEqual([mockScript]);
     });
   });
 
   describe('findOne', () => {
-    it('should return a single script by ID', async () => {
-      jest.spyOn(scriptsService, 'findOne').mockResolvedValue(mockScriptResponse);
+    it('returns a single script with ownerId and latest version', async () => {
+      scriptsService.findOne.mockResolvedValue(mockScript);
 
-      const result = await controller.findOne(mockScriptResponse.id);
+      const result = await controller.findOne(mockScript.id);
 
-      expect(result).toBe(mockScriptResponse);
-      expect(scriptsService.findOne).toHaveBeenCalledWith(mockScriptResponse.id);
+      expect(result.ownerId).toBe(owner.id);
+      expect(scriptsService.findOne).toHaveBeenCalledWith(mockScript.id);
     });
 
-    it('should throw NotFoundException for invalid ID', async () => {
-      const invalidId = 'invalid-id';
-      jest
-        .spyOn(scriptsService, 'findOne')
-        .mockRejectedValue(new NotFoundException(`Script with ID ${invalidId} not found`));
-
-      await expect(controller.findOne(invalidId)).rejects.toThrow(NotFoundException);
+    it('throws NotFoundException for unknown ID', async () => {
+      scriptsService.findOne.mockRejectedValue(new NotFoundException());
+      await expect(controller.findOne('bad-id')).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('create', () => {
-    it('should create a new script', async () => {
-      const createDto: CreateScriptDto = {
-        name: 'New Script',
-        content: '#!/bin/bash\necho "new"',
-        description: 'New script description',
-      };
+    it('passes the authenticated user ID as ownerId', async () => {
+      scriptsService.create.mockResolvedValue(mockScript);
 
-      jest.spyOn(scriptsService, 'create').mockResolvedValue(mockScriptResponse);
+      const result = await controller.create(
+        { name: 'Test Script', content: '#!/bin/bash\nset -e\necho "hello"' },
+        owner,
+      );
 
-      const result = await controller.create(createDto);
-
-      expect(result).toBe(mockScriptResponse);
-      expect(scriptsService.create).toHaveBeenCalledWith(createDto);
-    });
-
-    it('should create script without optional fields', async () => {
-      const createDto: CreateScriptDto = {
-        name: 'Minimal Script',
-        content: '#!/bin/bash',
-      };
-
-      const minimalResponse = { ...mockScriptResponse, description: undefined };
-      jest.spyOn(scriptsService, 'create').mockResolvedValue(minimalResponse);
-
-      const result = await controller.create(createDto);
-
-      expect(result.description).toBeUndefined();
-      expect(scriptsService.create).toHaveBeenCalledWith(createDto);
-    });
-
-    it('should create script with URL', async () => {
-      const createDto: CreateScriptDto = {
-        name: 'Remote Script',
-        content: '#!/bin/bash',
-        url: 'https://example.com/script.sh',
-      };
-
-      const responseWithUrl = { ...mockScriptResponse, url: createDto.url };
-      jest.spyOn(scriptsService, 'create').mockResolvedValue(responseWithUrl);
-
-      const result = await controller.create(createDto);
-
-      expect(result.url).toBe(createDto.url);
+      expect(scriptsService.create).toHaveBeenCalledWith(
+        { name: 'Test Script', content: '#!/bin/bash\nset -e\necho "hello"' },
+        owner.id,
+      );
+      expect(result.ownerId).toBe(owner.id);
     });
   });
 
   describe('delete', () => {
-    it('should delete a script by ID', async () => {
-      const scriptId = mockScriptResponse.id;
-      jest.spyOn(scriptsService, 'delete').mockResolvedValue(undefined);
-
-      await controller.delete(scriptId);
-
-      expect(scriptsService.delete).toHaveBeenCalledWith(scriptId);
-    });
-
-    it('should throw NotFoundException when deleting non-existent script', async () => {
-      const invalidId = 'non-existent-id';
-      jest
-        .spyOn(scriptsService, 'delete')
-        .mockRejectedValue(new NotFoundException(`Script with ID ${invalidId} not found`));
-
-      await expect(controller.delete(invalidId)).rejects.toThrow(NotFoundException);
+    it('deletes a script', async () => {
+      scriptsService.delete.mockResolvedValue(undefined);
+      await controller.delete(mockScript.id);
+      expect(scriptsService.delete).toHaveBeenCalledWith(mockScript.id);
     });
   });
 
-  describe('analyzeScript', () => {
-    it('should analyze a script by URL', async () => {
-      const url = 'https://example.com/script.sh';
-      const analysisResult = {
-        url,
-        trustScore: 85,
-        risks: [],
-        warnings: ['Uses sudo'],
-        safePatterns: ['Read-only operations'],
-        timestamp: new Date(),
-      };
+  describe('analyzeFromUrl', () => {
+    it('delegates to AnalysisService', async () => {
+      const url = 'https://example.com/install.sh';
+      const result = { url, ...mockAnalysis };
+      analysisService.analyzeFromUrl.mockResolvedValue(result);
 
-      jest.spyOn(analysisService, 'analyzeScript').mockResolvedValue(analysisResult);
+      expect(await controller.analyzeFromUrl(url)).toBe(result);
+    });
+  });
 
-      const result = await controller.analyzeScript(url);
+  describe('getVersions', () => {
+    it('returns all versions for a script', async () => {
+      versionsService.findAll.mockResolvedValue([mockVersion]);
+      expect(await controller.getVersions(mockScript.id)).toEqual([mockVersion]);
+    });
+  });
 
-      expect(result).toBe(analysisResult);
-      expect(analysisService.analyzeScript).toHaveBeenCalledWith(url);
+  describe('getVersion', () => {
+    it('returns a specific version by number', async () => {
+      versionsService.findByNumber.mockResolvedValue(mockVersion);
+      expect(await controller.getVersion(mockScript.id, 1)).toBe(mockVersion);
+    });
+
+    it('throws NotFoundException for unknown version', async () => {
+      versionsService.findByNumber.mockRejectedValue(new NotFoundException());
+      await expect(controller.getVersion(mockScript.id, 99)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('addVersion', () => {
+    it('passes the authenticated user ID to the service', async () => {
+      const updated = { ...mockScript, currentVersionNumber: 2 };
+      scriptsService.addVersion.mockResolvedValue(updated);
+
+      const result = await controller.addVersion(
+        mockScript.id,
+        { content: '#!/bin/bash\necho v2' },
+        owner,
+      );
+
+      expect(scriptsService.addVersion).toHaveBeenCalledWith(
+        mockScript.id,
+        '#!/bin/bash\necho v2',
+        owner.id,
+      );
+      expect(result.currentVersionNumber).toBe(2);
+    });
+
+    it('propagates ForbiddenException when called by a non-owner', async () => {
+      scriptsService.addVersion.mockRejectedValue(new ForbiddenException());
+
+      await expect(
+        controller.addVersion(mockScript.id, { content: '#!/bin/bash\necho v2' }, otherUser),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

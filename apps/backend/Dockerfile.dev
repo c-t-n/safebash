@@ -2,18 +2,19 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy root package files for workspace setup
-COPY package*.json ./
-COPY apps/backend/package*.json ./apps/backend/
+# Install pnpm
+RUN npm install -g pnpm
 
-# Install dependencies
-RUN npm install
+# Copy workspace manifests for layer-cached install
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/frontend/package.json ./apps/frontend/
+COPY apps/backend/package.json  ./apps/backend/
 
-# Copy backend source
+RUN pnpm install
+RUN pnpm --filter @safebash/backend install
+
 COPY apps/backend ./apps/backend
 
-# Expose port
 EXPOSE 3001
 
-# Start in development mode
-CMD ["npm", "run", "backend:dev"]
+CMD ["pnpm", "--filter", "@safebash/backend", "run", "dev"]

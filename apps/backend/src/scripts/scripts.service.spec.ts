@@ -1,49 +1,89 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Types } from 'mongoose';
 import { ScriptsService } from './scripts.service';
-import { CreateScriptDto } from './dto/create-script.dto';
-import { Script, ScriptDocument } from './schemas/script.schema';
+import { VersionsService } from './versions.service';
+import { AnalysisService, AnalysisResult } from './analysis.service';
+import { Script } from './schemas/script.schema';
+
+const mockAnalysis: AnalysisResult = {
+  trustScore: 85,
+  risks: [],
+  warnings: ['Uses sudo for elevated privileges'],
+  safePatterns: ['Has proper shebang line', 'Exits on command failure (set -e)'],
+  analyzedAt: new Date('2024-01-01'),
+};
+
+const scriptId = new Types.ObjectId().toString();
+const ownerId = new Types.ObjectId().toString();
+const otherUserId = new Types.ObjectId().toString();
+
+const makeScriptDoc = (override: Record<string, unknown> = {}) => ({
+  _id: { toString: () => scriptId },
+  ownerId: { toString: () => ownerId },
+  name: 'Test Script',
+  description: 'A test script',
+  url: undefined,
+  currentVersionNumber: 1,
+  createdAt: new Date('2024-01-01'),
+  updatedAt: new Date('2024-01-01'),
+  save: jest.fn().mockResolvedValue(undefined),
+  ...override,
+});
+
+const makeVersionDoc = (override: Record<string, unknown> = {}) => ({
+  _id: new Types.ObjectId(),
+  scriptId: new Types.ObjectId(scriptId),
+  versionNumber: 1,
+  content: '#!/bin/bash\nset -e\nsudo apt-get install curl',
+  analysis: mockAnalysis,
+  createdAt: new Date('2024-01-01'),
+  ...override,
+});
 
 describe('ScriptsService', () => {
   let service: ScriptsService;
-  let model: Model<ScriptDocument>;
+  let versionsService: jest.Mocked<VersionsService>;
+  let analysisService: jest.Mocked<AnalysisService>;
 
-  const mockScript = (override = {}) => ({
-    _id: '507f1f77bcf86cd799439011',
-    name: 'Test Script',
-    content: '#!/bin/bash\necho "Hello World"',
-    description: 'A test script',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    ...override,
-  });
-
-  const mockModel = {
-    new: jest.fn(),
-    constructor: jest.fn(),
+  const saveMock = jest.fn();
+  const mockScriptModel: Record<string, jest.Mock> = {
     find: jest.fn(),
     findById: jest.fn(),
     findByIdAndDelete: jest.fn(),
-    create: jest.fn(),
-    save: jest.fn(),
-    exec: jest.fn(),
   };
+
+  const ScriptModelConstructor = jest
+    .fn()
+    .mockImplementation(() => ({ save: saveMock }));
+  Object.assign(ScriptModelConstructor, mockScriptModel);
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScriptsService,
+        { provide: getModelToken(Script.name), useValue: ScriptModelConstructor },
         {
-          provide: getModelToken(Script.name),
-          useValue: mockModel,
+          provide: VersionsService,
+          useValue: {
+            findAll: jest.fn(),
+            findByNumber: jest.fn(),
+            findLatest: jest.fn(),
+            create: jest.fn(),
+            deleteAllForScript: jest.fn(),
+          },
+        },
+        {
+          provide: AnalysisService,
+          useValue: { analyze: jest.fn(), analyzeFromUrl: jest.fn() },
         },
       ],
     }).compile();
 
     service = module.get<ScriptsService>(ScriptsService);
-    model = module.get<Model<ScriptDocument>>(getModelToken(Script.name));
+    versionsService = module.get(VersionsService);
+    analysisService = module.get(AnalysisService);
     jest.clearAllMocks();
   });
 
@@ -51,106 +91,133 @@ describe('ScriptsService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('create', () => {
-    it('should create a new script', async () => {
-      const createDto: CreateScriptDto = {
-        name: 'Test Script',
-        content: '#!/bin/bash\necho "Hello World"',
-        description: 'A test script',
-      };
-
-      const savedScript = mockScript();
-      const saveMock = jest.fn().mockResolvedValue(savedScript);
-
-      jest.spyOn(model, 'constructor' as any).mockImplementation(() => ({
-        save: saveMock,
-      }));
-
-      // Mock the model constructor to return an object with a save method
-      (mockModel as any).mockImplementation(() => ({
-        save: saveMock,
-      }));
-
-      const result = await service.create(createDto);
-
-      expect(result).toBeDefined();
-      expect(result.name).toBe(savedScript.name);
-      expect(result.content).toBe(savedScript.content);
-    });
-  });
-
   describe('findAll', () => {
-    it('should return an array of scripts', async () => {
-      const scripts = [mockScript(), mockScript({ _id: 'another-id', name: 'Another Script' })];
-
-      mockModel.find.mockReturnValue({
-        exec: jest.fn().mockResolvedValue(scripts),
-      });
+    it('returns a list of script summaries with ownerId', async () => {
+      const docs = [makeScriptDoc(), makeScriptDoc({ _id: { toString: () => 'other-id' } })];
+      mockScriptModel.find.mockReturnValue({ exec: jest.fn().mockResolvedValue(docs) });
 
       const result = await service.findAll();
 
       expect(result).toHaveLength(2);
-      expect(mockModel.find).toHaveBeenCalled();
-    });
-
-    it('should return empty array when no scripts exist', async () => {
-      mockModel.find.mockReturnValue({
-        exec: jest.fn().mockResolvedValue([]),
-      });
-
-      const result = await service.findAll();
-
-      expect(result).toEqual([]);
+      expect(result[0].ownerId).toBe(ownerId);
+      expect(result[0].latestVersion).toBeUndefined();
     });
   });
 
   describe('findOne', () => {
-    it('should return a script by ID', async () => {
-      const script = mockScript();
+    it('returns the script with ownerId and latest version attached', async () => {
+      const doc = makeScriptDoc();
+      const version = makeVersionDoc();
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+      versionsService.findLatest.mockResolvedValue(version as any);
 
-      mockModel.findById.mockReturnValue({
-        exec: jest.fn().mockResolvedValue(script),
-      });
+      const result = await service.findOne(scriptId);
 
-      const result = await service.findOne(script._id);
-
-      expect(result).toBeDefined();
-      expect(result.id).toBe(script._id);
-      expect(mockModel.findById).toHaveBeenCalledWith(script._id);
+      expect(result.id).toBe(scriptId);
+      expect(result.ownerId).toBe(ownerId);
+      expect(result.latestVersion?.versionNumber).toBe(1);
     });
 
-    it('should throw NotFoundException for non-existent ID', async () => {
-      mockModel.findById.mockReturnValue({
-        exec: jest.fn().mockResolvedValue(null),
-      });
+    it('throws NotFoundException when script does not exist', async () => {
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
 
-      await expect(service.findOne('non-existent-id')).rejects.toThrow(
+      await expect(service.findOne('bad-id')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getRawContent', () => {
+    it('returns the raw content of the latest version', async () => {
+      const doc = makeScriptDoc();
+      const version = makeVersionDoc();
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+      versionsService.findLatest.mockResolvedValue(version as any);
+
+      expect(await service.getRawContent(scriptId)).toBe(version.content);
+    });
+
+    it('throws NotFoundException when script has no versions', async () => {
+      const doc = makeScriptDoc();
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+      versionsService.findLatest.mockResolvedValue(null);
+
+      await expect(service.getRawContent(scriptId)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('create', () => {
+    it('creates a script with the given ownerId and returns version 1', async () => {
+      const doc = makeScriptDoc();
+      const version = makeVersionDoc();
+      saveMock.mockResolvedValue(doc);
+      analysisService.analyze.mockReturnValue(mockAnalysis);
+      versionsService.create.mockResolvedValue(version as any);
+      versionsService.findLatest.mockResolvedValue(version as any);
+
+      const result = await service.create(
+        { name: 'Test Script', content: '#!/bin/bash\nset -e\nsudo apt-get install curl' },
+        ownerId,
+      );
+
+      expect(versionsService.create).toHaveBeenCalledWith(
+        scriptId,
+        1,
+        '#!/bin/bash\nset -e\nsudo apt-get install curl',
+        mockAnalysis,
+      );
+      expect(result.ownerId).toBe(ownerId);
+      expect(result.currentVersionNumber).toBe(1);
+    });
+  });
+
+  describe('addVersion', () => {
+    it('creates a new version when called by the owner', async () => {
+      const doc = makeScriptDoc({ currentVersionNumber: 1 });
+      const newVersion = makeVersionDoc({ versionNumber: 2, content: '#!/bin/bash\necho v2' });
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+      analysisService.analyze.mockReturnValue(mockAnalysis);
+      versionsService.create.mockResolvedValue(newVersion as any);
+
+      const result = await service.addVersion(scriptId, '#!/bin/bash\necho v2', ownerId);
+
+      expect(versionsService.create).toHaveBeenCalledWith(
+        scriptId, 2, '#!/bin/bash\necho v2', mockAnalysis,
+      );
+      expect(result.latestVersion?.versionNumber).toBe(2);
+    });
+
+    it('throws ForbiddenException when called by a non-owner', async () => {
+      const doc = makeScriptDoc();
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+
+      await expect(
+        service.addVersion(scriptId, '#!/bin/bash\necho v2', otherUserId),
+      ).rejects.toThrow(ForbiddenException);
+      expect(versionsService.create).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when script does not exist', async () => {
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
+
+      await expect(service.addVersion('bad-id', 'content', ownerId)).rejects.toThrow(
         NotFoundException,
       );
     });
   });
 
   describe('delete', () => {
-    it('should delete a script by ID', async () => {
-      const script = mockScript();
+    it('deletes the script and all its versions', async () => {
+      const doc = makeScriptDoc();
+      mockScriptModel.findByIdAndDelete.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
 
-      mockModel.findByIdAndDelete.mockReturnValue({
-        exec: jest.fn().mockResolvedValue(script),
-      });
+      await service.delete(scriptId);
 
-      await service.delete(script._id);
-
-      expect(mockModel.findByIdAndDelete).toHaveBeenCalledWith(script._id);
+      expect(versionsService.deleteAllForScript).toHaveBeenCalledWith(scriptId);
     });
 
-    it('should throw NotFoundException when deleting non-existent script', async () => {
-      mockModel.findByIdAndDelete.mockReturnValue({
-        exec: jest.fn().mockResolvedValue(null),
-      });
+    it('throws NotFoundException when script does not exist', async () => {
+      mockScriptModel.findByIdAndDelete.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
 
-      await expect(service.delete('non-existent-id')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.delete('bad-id')).rejects.toThrow(NotFoundException);
     });
   });
 });

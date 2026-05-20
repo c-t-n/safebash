@@ -38,7 +38,7 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
-    command: npm run backend:dev
+    command: pnpm --filter @safebash/backend run dev
 
   frontend:
     build:
@@ -52,12 +52,13 @@ services:
       - ./apps/frontend/index.html:/app/apps/frontend/index.html
       - ./apps/frontend/vite.config.ts:/app/apps/frontend/vite.config.ts
     environment:
-      - VITE_API_URL=http://localhost:3001/api
+      - VITE_API_URL=http://backend:3001/api
+      - BACKEND_URL=http://backend:3001
     networks:
       - safebash-network
     depends_on:
       - backend
-    command: npm run frontend:dev -- --host
+    command: pnpm --filter @safebash/frontend exec vite --host 0.0.0.0
 
 networks:
   safebash-network:

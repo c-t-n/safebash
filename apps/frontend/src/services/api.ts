@@ -1,27 +1,58 @@
-const API_BASE_URL = '/api';
+import type { AuthResponse, Script } from '../types';
 
-export async function analyzeScript(url: string) {
-  const response = await fetch(`${API_BASE_URL}/scripts/analyze`, {
+const BASE = '/api';
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg = Array.isArray(body.message) ? body.message[0] : body.message;
+    throw new Error(msg ?? `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+// ── Auth ────────────────────────────────────────────────────────────────────
+
+export const register = (email: string, password: string) =>
+  request<AuthResponse>('/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({ email, password }),
   });
 
-  if (!response.ok) {
-    throw new Error('Failed to analyze script');
-  }
+export const login = (email: string, password: string) =>
+  request<AuthResponse>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
 
-  return response.json();
+// ── Scripts ─────────────────────────────────────────────────────────────────
+
+export const getScripts = () => request<Script[]>('/scripts');
+
+export const getScript = (id: string) => request<Script>(`/scripts/${id}`);
+
+export interface CreateScriptData {
+  name: string;
+  content: string;
+  description?: string;
+  url?: string;
 }
 
-export async function getScripts() {
-  const response = await fetch(`${API_BASE_URL}/scripts`);
+export const createScript = (token: string, data: CreateScriptData) =>
+  request<Script>('/scripts', {
+    method: 'POST',
+    headers: bearer(token),
+    body: JSON.stringify(data),
+  });
 
-  if (!response.ok) {
-    throw new Error('Failed to fetch scripts');
-  }
-
-  return response.json();
-}
+export const analyzeScript = (url: string) =>
+  request('/scripts/analyze', {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
