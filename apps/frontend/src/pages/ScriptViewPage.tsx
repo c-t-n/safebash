@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getScript } from '../services/api';
 import { Layout } from '../components/Layout';
-import type { Script } from '../types';
+import type { LineExplanation, Script } from '../types';
+
+type Vocab = 'plain' | 'tech';
 
 function TrustBadge({ score }: { score?: number }) {
   if (score === undefined) return <span className="badge badge-unknown">—</span>;
@@ -32,11 +34,50 @@ function Findings({
   );
 }
 
+function VocabTabs({ value, onChange }: { value: Vocab; onChange: (v: Vocab) => void }) {
+  return (
+    <div className="mode-tabs">
+      <button
+        type="button"
+        className={`mode-tab${value === 'plain' ? ' active' : ''}`}
+        onClick={() => onChange('plain')}
+      >
+        plain
+      </button>
+      <button
+        type="button"
+        className={`mode-tab${value === 'tech' ? ' active' : ''}`}
+        onClick={() => onChange('tech')}
+      >
+        tech
+      </button>
+    </div>
+  );
+}
+
+function LineRows({ lines, vocab }: { lines: LineExplanation[]; vocab: Vocab }) {
+  return (
+    <div className="line-table">
+      {lines.map((l) => (
+        <div
+          key={l.lineNumber}
+          className={`line-row${l.source === 'unknown' ? ' line-unknown' : ''}`}
+        >
+          <span className="line-number">{l.lineNumber}</span>
+          <code className="line-content">{l.content || ' '}</code>
+          <span className="line-explanation">{l[vocab]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ScriptViewPage() {
   const { id } = useParams<{ id: string }>();
   const [script, setScript]   = useState<Script | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
+  const [vocab, setVocab]     = useState<Vocab>('plain');
 
   useEffect(() => {
     if (!id) return;
@@ -53,6 +94,10 @@ export default function ScriptViewPage() {
   const installCmd = `curl -fsSL ${installUrl} | sh`;
 
   const copyInstall = () => navigator.clipboard.writeText(installCmd);
+
+  const analysis = script?.latestVersion?.analysis;
+  const summary  = analysis?.summary;
+  const lines    = analysis?.lines;
 
   return (
     <Layout>
@@ -79,7 +124,7 @@ export default function ScriptViewPage() {
             <div className="meta-cell">
               <span className="meta-label">trust</span>
               <span className="meta-value">
-                <TrustBadge score={script.latestVersion?.analysis?.trustScore} />
+                <TrustBadge score={analysis?.trustScore} />
               </span>
             </div>
             <div className="meta-cell">
@@ -114,24 +159,33 @@ export default function ScriptViewPage() {
             </div>
           </section>
 
-          {script.latestVersion?.analysis && (
+          {(summary || lines) && (
+            <div className="vocab-bar">
+              <span className="vocab-label">explain in</span>
+              <VocabTabs value={vocab} onChange={setVocab} />
+            </div>
+          )}
+
+          {summary && (
+            <section className="section">
+              <h2 className="section-title">summary</h2>
+              <p className="summary-text">{summary[vocab]}</p>
+            </section>
+          )}
+
+          {lines && lines.length > 0 && (
+            <section className="section">
+              <h2 className="section-title">line by line</h2>
+              <LineRows lines={lines} vocab={vocab} />
+            </section>
+          )}
+
+          {analysis && (
             <section className="section">
               <h2 className="section-title">analysis</h2>
-              <Findings
-                title="risks"
-                items={script.latestVersion.analysis.risks}
-                tone="danger"
-              />
-              <Findings
-                title="warnings"
-                items={script.latestVersion.analysis.warnings}
-                tone="warn"
-              />
-              <Findings
-                title="safe patterns"
-                items={script.latestVersion.analysis.safePatterns}
-                tone="good"
-              />
+              <Findings title="risks"        items={analysis.risks}        tone="danger" />
+              <Findings title="warnings"     items={analysis.warnings}     tone="warn" />
+              <Findings title="safe patterns" items={analysis.safePatterns} tone="good" />
             </section>
           )}
 

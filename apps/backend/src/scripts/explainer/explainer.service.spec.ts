@@ -1,0 +1,121 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { ExplainerService } from './explainer.service';
+import { LlmExplainerClient } from './llm.client';
+
+describe('ExplainerService', () => {
+  let service: ExplainerService;
+  let llm: jest.Mocked<LlmExplainerClient>;
+
+  const buildModule = async (llmAvailable: boolean) => {
+    const llmStub = {
+      isAvailable: jest.fn().mockReturnValue(llmAvailable),
+      summarise: jest.fn(),
+      explainLines: jest.fn(),
+    };
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ExplainerService,
+        { provide: LlmExplainerClient, useValue: llmStub },
+      ],
+    }).compile();
+    service = module.get(ExplainerService);
+    llm = module.get(LlmExplainerClient) as unknown as jest.Mocked<LlmExplainerClient>;
+  };
+
+  describe('dictionary-only path (LLM disabled)', () => {
+    beforeEach(async () => {
+      await buildModule(false);
+    });
+
+    it('classifies known lines via the dictionary and marks unknown ones', async () => {
+      const script = [
+        '#!/bin/bash',
+        'set -e',
+        '# install the web server',
+        '',
+        'apt-get install -y nginx',
+        'frobnicate the gizmo',
+      ].join('\n');
+
+      const result = await service.explain(script);
+
+      expect(result.lines).toHaveLength(6);
+      expect(result.lines[0].source).toBe('dict');       // shebang
+      expect(result.lines[1].source).toBe('dict');       // set -e
+      expect(result.lines[2].source).toBe('comment');
+      expect(result.lines[3].source).toBe('empty');
+      expect(result.lines[4].source).toBe('dict');       // apt install
+      expect(result.lines[4].tech).toContain('nginx');
+      expect(result.lines[5].source).toBe('unknown');
+    });
+
+    it('builds a templated summary from matched categories', async () => {
+      const script = '#!/bin/bash\nset -e\napt-get install -y curl';
+      const result = await service.explain(script);
+
+      expect(result.summary.tech).toMatch(/bash entrypoint|strict mode|installs system packages/);
+      expect(result.summary.plain).toMatch(/shell script|stop on errors|installs new software/);
+      // LLM was never asked for a summary
+      expect(llm.summarise).not.toHaveBeenCalled();
+      expect(llm.explainLines).not.toHaveBeenCalled();
+    });
+
+    it('falls back to a no-recognition summary when nothing matches', async () => {
+      const result = await service.explain('frobnicate the gizmo');
+      expect(result.summary.tech).toMatch(/No recognised commands/);
+    });
+  });
+
+  describe('hybrid path (LLM available)', () => {
+    beforeEach(async () => {
+      await buildModule(true);
+    });
+
+    it('enriches unmatched lines and uses the LLM summary', async () => {
+      llm.summarise.mockResolvedValue({ tech: 'LLM tech', plain: 'LLM plain' });
+      llm.explainLines.mockResolvedValue([
+        { lineNumber: 2, tech: 'LLM tech for line 2', plain: 'LLM plain for line 2' },
+      ]);
+
+      const script = '#!/bin/bash\nfrobnicate the gizmo';
+      const result = await service.explain(script);
+
+      expect(llm.summarise).toHaveBeenCalledTimes(1);
+      expect(llm.explainLines).toHaveBeenCalledTimes(1);
+      expect(llm.explainLines).toHaveBeenCalledWith([
+        { lineNumber: 2, content: 'frobnicate the gizmo' },
+      ]);
+
+      expect(result.lines[0].source).toBe('dict');
+      expect(result.lines[1]).toMatchObject({
+        source: 'llm',
+        tech: 'LLM tech for line 2',
+        plain: 'LLM plain for line 2',
+      });
+      expect(result.summary).toEqual({ tech: 'LLM tech', plain: 'LLM plain' });
+    });
+
+    it('does not call explainLines when nothing is unmatched', async () => {
+      llm.summarise.mockResolvedValue({ tech: 'all clear', plain: 'all clear' });
+
+      const script = '#!/bin/bash\nset -e';
+      await service.explain(script);
+
+      expect(llm.explainLines).not.toHaveBeenCalled();
+      expect(llm.summarise).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to templated summary when summarise returns null', async () => {
+      llm.summarise.mockResolvedValue(null);
+      llm.explainLines.mockResolvedValue(null);
+
+      const script = '#!/bin/bash\nfrobnicate';
+      const result = await service.explain(script);
+
+      // Templated summary built from the shebang category
+      expect(result.summary.tech).toMatch(/bash entrypoint/);
+      // Unmatched line stays as 'unknown' when LLM enrichment fails
+      expect(result.lines[1].source).toBe('unknown');
+    });
+  });
+});

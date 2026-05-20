@@ -8,12 +8,27 @@ export interface AuthResponse {
   user: User;
 }
 
+export interface ScriptSummary {
+  tech: string;
+  plain: string;
+}
+
+export interface LineExplanation {
+  lineNumber: number;
+  content: string;
+  tech: string;
+  plain: string;
+  source: 'dict' | 'llm' | 'comment' | 'empty' | 'unknown';
+}
+
 export interface AnalysisResult {
   trustScore: number;
   risks: string[];
   warnings: string[];
   safePatterns: string[];
   analyzedAt: string;
+  summary?: ScriptSummary;
+  lines?: LineExplanation[];
 }
 
 export interface VersionSummary {

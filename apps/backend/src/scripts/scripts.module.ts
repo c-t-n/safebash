@@ -4,6 +4,8 @@ import { ScriptsController } from './scripts.controller';
 import { ScriptsService } from './scripts.service';
 import { VersionsService } from './versions.service';
 import { AnalysisService } from './analysis.service';
+import { ExplainerService } from './explainer/explainer.service';
+import { LlmExplainerClient } from './explainer/llm.client';
 import { Script, ScriptSchema } from './schemas/script.schema';
 import { ScriptVersion, ScriptVersionSchema } from './schemas/script-version.schema';
 import { AuthModule } from '../auth/auth.module';
@@ -17,6 +19,12 @@ import { AuthModule } from '../auth/auth.module';
     AuthModule,
   ],
   controllers: [ScriptsController],
-  providers: [ScriptsService, VersionsService, AnalysisService],
+  providers: [
+    ScriptsService,
+    VersionsService,
+    AnalysisService,
+    ExplainerService,
+    LlmExplainerClient,
+  ],
 })
 export class ScriptsModule {}

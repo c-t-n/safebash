@@ -42,7 +42,7 @@ export class ScriptsService {
   }
 
   async create(dto: CreateScriptDto, ownerId: string): Promise<ScriptResponseDto> {
-    const analysis = this.analysisService.analyze(dto.content);
+    const analysis = await this.analysisService.analyze(dto.content);
     const script = await new this.scriptModel({
       ownerId: new Types.ObjectId(ownerId),
       name: dto.name,
@@ -75,7 +75,7 @@ export class ScriptsService {
     }
 
     const nextVersion = script.currentVersionNumber + 1;
-    const analysis = this.analysisService.analyze(content);
+    const analysis = await this.analysisService.analyze(content);
     const version = await this.versionsService.create(
       scriptId,
       nextVersion,
