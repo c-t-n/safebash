@@ -1,5 +1,6 @@
 import { useState, FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { Shield } from 'lucide-react';
 import { register as registerApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -29,14 +30,17 @@ export default function SignupPage() {
 
   return (
     <div className="auth-page">
-      <form className="auth-card" onSubmit={handleSubmit}>
-        <div className="auth-logo">safebash</div>
-        <h1 className="auth-title">create account</h1>
+      <form className="auth-card card" onSubmit={handleSubmit}>
+        <div className="auth-brand">
+          <span className="brand-mark"><Shield size={14} strokeWidth={2.2} /></span>
+          <span style={{ fontSize: 15, fontWeight: 600 }}>SafeBash<span className="brand-suffix"> · audit</span></span>
+        </div>
+        <h1 className="auth-title">Create account</h1>
 
         {error && <div className="auth-error">{error}</div>}
 
-        <div>
-          <label className="field-label" htmlFor="email">email</label>
+        <div className="field">
+          <label className="field-label" htmlFor="email">Email</label>
           <input
             id="email"
             className="field-input"
@@ -48,9 +52,9 @@ export default function SignupPage() {
           />
         </div>
 
-        <div>
+        <div className="field">
           <label className="field-label" htmlFor="password">
-            password <span className="field-hint">min 8 characters</span>
+            Password <span className="field-hint">— min 8 characters</span>
           </label>
           <input
             id="password"
@@ -63,12 +67,12 @@ export default function SignupPage() {
           />
         </div>
 
-        <button className="btn-primary" type="submit" disabled={loading} style={{ marginTop: '0.5rem' }}>
-          {loading ? 'creating account...' : 'register'}
+        <button className="btn btn--ink" type="submit" disabled={loading} style={{ justifyContent: 'center', marginTop: 4 }}>
+          {loading ? 'Creating account…' : 'Register'}
         </button>
 
         <p className="auth-link">
-          already have an account? <Link to="/login">sign in →</Link>
+          Already have an account? <Link to="/login">Sign in →</Link>
         </p>
       </form>
     </div>
