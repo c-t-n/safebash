@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { AlertTriangle, Check, ChevronLeft, Clipboard, FileCode, Pencil, X } from 'lucide-react';
+import {
+  AlertTriangle, Braces, Check, ChevronDown, ChevronLeft, ChevronRight,
+  Clipboard, FileCode, Pencil, X,
+} from 'lucide-react';
 import { getScript, updateScript } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Layout } from '../components/Layout';
@@ -88,6 +91,9 @@ function VocabToggle({ value, onChange }: { value: Vocab; onChange: (v: Vocab) =
 const isExplanationVisible = (l: LineExplanation): boolean =>
   l.source !== 'empty' && l.source !== 'comment';
 
+const isFunction = (l: LineExplanation): boolean =>
+  l.source === 'block' && l.blockKind === 'function';
+
 function lineLabel(l: LineExplanation): string {
   return l.endLineNumber && l.endLineNumber !== l.lineNumber
     ? `${l.lineNumber}–${l.endLineNumber}`
@@ -100,7 +106,14 @@ function rowToneFor(source: LineExplanation['source']): string {
   return '';
 }
 
-function ExplanationCode({ lines, vocab }: { lines: LineExplanation[]; vocab: Vocab }) {
+function ExplanationCode({
+  lines, vocab, expandedFns, onToggleFn,
+}: {
+  lines: LineExplanation[];
+  vocab: Vocab;
+  expandedFns: Set<number>;
+  onToggleFn: (lineNumber: number) => void;
+}) {
   const visible = lines.filter(isExplanationVisible);
   return (
     <div className="code-grid">
@@ -109,6 +122,47 @@ function ExplanationCode({ lines, vocab }: { lines: LineExplanation[]; vocab: Vo
           ? <AlertTriangle size={11} strokeWidth={2.2} />
           : <Check size={11} strokeWidth={2.5} />;
         const explanationColor = l.source === 'unknown' ? 'var(--warn)' : 'var(--good)';
+
+        if (isFunction(l)) {
+          const expanded = expandedFns.has(l.lineNumber);
+          const firstLine = l.content.split('\n')[0];
+          const hiddenLines = (l.endLineNumber ?? l.lineNumber) - l.lineNumber;
+          return (
+            <div
+              key={l.lineNumber}
+              id={`symbol-${l.lineNumber}`}
+              className={`code-line code-row--block code-row--fn${expanded ? ' code-row--fn-open' : ''}`}
+            >
+              <div className="code-num">{lineLabel(l)}</div>
+              <div className="code-body">
+                <div className="fn-header">
+                  <button
+                    type="button"
+                    className="fn-toggle"
+                    onClick={() => onToggleFn(l.lineNumber)}
+                    aria-label={expanded ? 'collapse function' : 'expand function'}
+                    aria-expanded={expanded}
+                  >
+                    {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  </button>
+                  <code className="fn-signature">
+                    {expanded
+                      ? l.content
+                      : <>{firstLine} <span className="fn-fold-tag">{'{ … }'}</span></>}
+                  </code>
+                </div>
+                {!expanded && hiddenLines > 0 && (
+                  <div className="fn-fold-meta">{hiddenLines} {hiddenLines === 1 ? 'line' : 'lines'} folded</div>
+                )}
+                <div className="code-note" style={{ color: explanationColor }}>
+                  {icon}
+                  <span>{l[vocab]}</span>
+                </div>
+              </div>
+            </div>
+          );
+        }
+
         return (
           <div key={l.lineNumber} className={`code-line ${rowToneFor(l.source)}`}>
             <div className="code-num">{lineLabel(l)}</div>
@@ -122,6 +176,40 @@ function ExplanationCode({ lines, vocab }: { lines: LineExplanation[]; vocab: Vo
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function SymbolPanel({
+  symbols,
+  onJump,
+}: {
+  symbols: LineExplanation[];
+  onJump: (lineNumber: number) => void;
+}) {
+  if (symbols.length === 0) return null;
+  return (
+    <div className="card">
+      <div className="card-body">
+        <div className="cap" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Braces size={11} strokeWidth={2.2} />
+          Functions <span style={{ color: 'var(--ink-3)', fontWeight: 400 }}>· {symbols.length}</span>
+        </div>
+        <ul className="symbol-list">
+          {symbols.map((s) => (
+            <li key={s.lineNumber}>
+              <button
+                type="button"
+                className="symbol-item"
+                onClick={() => onJump(s.lineNumber)}
+              >
+                <span className="mono symbol-name">{s.symbolName ?? '(anonymous)'}</span>
+                <span className="mono symbol-range">{lineLabel(s)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -141,6 +229,28 @@ export default function ScriptViewPage() {
   const [editUrl, setEditUrl]               = useState('');
   const [saving, setSaving]                 = useState(false);
   const [saveError, setSaveError]           = useState<string | null>(null);
+
+  // Which function blocks are currently expanded (keyed by start line).
+  const [expandedFns, setExpandedFns] = useState<Set<number>>(new Set());
+
+  const toggleFn = (lineNumber: number) =>
+    setExpandedFns((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineNumber)) next.delete(lineNumber);
+      else next.add(lineNumber);
+      return next;
+    });
+
+  const jumpToSymbol = (lineNumber: number) => {
+    setExpandedFns((prev) => new Set(prev).add(lineNumber));
+    // Defer so React lays out the now-expanded row before we scroll to it.
+    requestAnimationFrame(() => {
+      document.getElementById(`symbol-${lineNumber}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    });
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -208,6 +318,11 @@ export default function ScriptViewPage() {
   const lineCount = content ? content.split('\n').length : 0;
   const score    = analysis?.trustScore;
   const verdict  = score !== undefined ? verdictOf(score) : undefined;
+
+  const symbols = useMemo(
+    () => (lines ?? []).filter(isFunction),
+    [lines],
+  );
 
   return (
     <Layout>
@@ -374,7 +489,12 @@ export default function ScriptViewPage() {
                     </div>
                   )}
                   {lines && lines.some(isExplanationVisible) && (
-                    <ExplanationCode lines={lines} vocab={vocab} />
+                    <ExplanationCode
+                      lines={lines}
+                      vocab={vocab}
+                      expandedFns={expandedFns}
+                      onToggleFn={toggleFn}
+                    />
                   )}
                 </div>
               )}
@@ -392,8 +512,10 @@ export default function ScriptViewPage() {
               </div>
             </div>
 
-            {/* RIGHT — verdict + findings */}
+            {/* RIGHT — symbols + verdict + findings */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <SymbolPanel symbols={symbols} onJump={jumpToSymbol} />
+
               {analysis && score !== undefined && (
                 <div className="card">
                   <div className="card-body" style={{ padding: 18 }}>

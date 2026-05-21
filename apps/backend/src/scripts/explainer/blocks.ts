@@ -149,6 +149,14 @@ export function detectUnits(logical: LogicalLine[]): Unit[] {
   return units;
 }
 
+/** For function blocks, returns the function name (without parens). Other
+ *  kinds return undefined. */
+export function blockSymbolName(block: Block): string | undefined {
+  if (block.kind !== 'function') return undefined;
+  const m = block.opener.match(/^(?:function\s+)?([A-Za-z_]\w*)\s*\(\)/);
+  return m?.[1];
+}
+
 /** Builds the tech/plain explanation for a detected block. */
 export function explainBlock(block: Block): { tech: string; plain: string; category: DictCategory } {
   switch (block.kind) {

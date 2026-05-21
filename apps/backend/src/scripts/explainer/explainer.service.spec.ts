@@ -167,6 +167,16 @@ describe('ExplainerService', () => {
       expect(fn.source).toBe('block');
       expect(fn.endLineNumber).toBe(3);
       expect(fn.tech).toContain('greet');
+      expect(fn.blockKind).toBe('function');
+      expect(fn.symbolName).toBe('greet');
+    });
+
+    it('exposes blockKind for non-function blocks but no symbolName', async () => {
+      const script = ['for f in *; do', '  echo "$f"', 'done'].join('\n');
+      const result = await service.explain(script);
+      expect(result.lines).toHaveLength(1);
+      expect(result.lines[0].blockKind).toBe('for');
+      expect(result.lines[0].symbolName).toBeUndefined();
     });
 
     it('still treats single-line if/fi as a regular dict match', async () => {
