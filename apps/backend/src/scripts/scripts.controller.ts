@@ -17,8 +17,10 @@ import { VersionsService } from './versions.service';
 import { AnalysisService } from './analysis.service';
 import { CreateScriptDto } from './dto/create-script.dto';
 import { CreateVersionDto } from './dto/create-version.dto';
+import { FetchUrlDto, FetchUrlResponseDto } from './dto/fetch-url.dto';
 import { ScriptResponseDto } from './dto/script-response.dto';
 import { VersionResponseDto } from './dto/version-response.dto';
+import { ScriptFetcher } from './script-fetcher.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtUser } from '../auth/strategies/jwt.strategy';
@@ -29,6 +31,7 @@ export class ScriptsController {
     private readonly scriptsService: ScriptsService,
     private readonly versionsService: VersionsService,
     private readonly analysisService: AnalysisService,
+    private readonly fetcher: ScriptFetcher,
   ) {}
 
   // ── Script CRUD ─────────────────────────────────────────────────────────────
@@ -52,6 +55,20 @@ export class ScriptsController {
   @Post('analyze')
   analyzeFromUrl(@Body('url') url: string) {
     return this.analysisService.analyzeFromUrl(url);
+  }
+
+  // Fetches a script's content over the public network so the user can preview
+  // and publish it without manually copy-pasting. Auth-guarded because the
+  // server performs the egress on behalf of the caller.
+  @UseGuards(JwtAuthGuard)
+  @Post('fetch-url')
+  async fetchFromUrl(@Body() dto: FetchUrlDto): Promise<FetchUrlResponseDto> {
+    const content = await this.fetcher.fetchText(dto.url);
+    return {
+      url: dto.url,
+      content,
+      suggestedName: this.fetcher.suggestedName(dto.url),
+    };
   }
 
   @Get(':id')
