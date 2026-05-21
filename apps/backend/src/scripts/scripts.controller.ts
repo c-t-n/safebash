@@ -87,6 +87,16 @@ export class ScriptsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(':id/reanalyze')
+  @HttpCode(HttpStatus.OK)
+  reanalyze(
+    @Param('id') id: string,
+    @CurrentUser() user: JwtUser,
+  ): Promise<ScriptResponseDto> {
+    return this.scriptsService.reanalyzeLatest(id, user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   updateMetadata(
     @Param('id') id: string,

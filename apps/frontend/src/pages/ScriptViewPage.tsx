@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   AlertTriangle, Braces, Check, ChevronDown, ChevronLeft, ChevronRight,
-  Clipboard, FileCode, Pencil, X,
+  Clipboard, FileCode, Pencil, RefreshCw, X,
 } from 'lucide-react';
-import { getScript, updateScript } from '../services/api';
+import { getScript, reanalyzeScript, updateScript } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Layout } from '../components/Layout';
 import type { LineExplanation, Script } from '../types';
@@ -230,6 +230,10 @@ export default function ScriptViewPage() {
   const [saving, setSaving]                 = useState(false);
   const [saveError, setSaveError]           = useState<string | null>(null);
 
+  // Re-analyze state
+  const [reanalyzing, setReanalyzing]       = useState(false);
+  const [reanalyzeError, setReanalyzeError] = useState<string | null>(null);
+
   // Which function blocks are currently expanded (keyed by start line).
   const [expandedFns, setExpandedFns] = useState<Set<number>>(new Set());
 
@@ -306,6 +310,20 @@ export default function ScriptViewPage() {
   };
 
   const canEdit = script && user?.id === script.ownerId;
+
+  const handleReanalyze = async () => {
+    if (!script || !token) return;
+    setReanalyzeError(null);
+    setReanalyzing(true);
+    try {
+      const updated = await reanalyzeScript(token, script.id);
+      setScript(updated);
+    } catch (err: unknown) {
+      setReanalyzeError(err instanceof Error ? err.message : 'Failed to re-analyze');
+    } finally {
+      setReanalyzing(false);
+    }
+  };
 
   const installUrl = `${window.location.origin}/api/scripts/${id}/raw`;
   const installCmd = `curl -fsSL ${installUrl} | sh`;
@@ -434,9 +452,24 @@ export default function ScriptViewPage() {
               ) : (
                 <>
                   {canEdit && (
-                    <button type="button" className="btn" onClick={startEdit}>
-                      <Pencil size={13} /> Edit
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={handleReanalyze}
+                        disabled={reanalyzing}
+                        title="Re-run the analyzer over the latest version"
+                      >
+                        <RefreshCw
+                          size={13}
+                          className={reanalyzing ? 'spin' : undefined}
+                        />
+                        {reanalyzing ? 'Re-analyzing…' : 'Re-analyze'}
+                      </button>
+                      <button type="button" className="btn" onClick={startEdit}>
+                        <Pencil size={13} /> Edit
+                      </button>
+                    </>
                   )}
                   <Link to="/scripts" className="btn">
                     <ChevronLeft size={13} /> Back
@@ -445,6 +478,10 @@ export default function ScriptViewPage() {
               )}
             </div>
           </div>
+
+          {reanalyzeError && (
+            <div className="form-error">{reanalyzeError}</div>
+          )}
 
           {/* Public install card */}
           <div className="card">

@@ -214,6 +214,47 @@ describe('ScriptsService', () => {
     });
   });
 
+  describe('reanalyzeLatest', () => {
+    it('re-runs analysis on the latest version and persists the result', async () => {
+      const doc = makeScriptDoc();
+      const save = jest.fn().mockResolvedValue(undefined);
+      const latest = makeVersionDoc({ save }) as ReturnType<typeof makeVersionDoc> & { save: jest.Mock };
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+      versionsService.findLatest.mockResolvedValue(latest as any);
+      const fresh = { ...mockAnalysis, trustScore: 72 };
+      analysisService.analyze.mockResolvedValue(fresh);
+
+      const result = await service.reanalyzeLatest(scriptId, ownerId);
+
+      expect(analysisService.analyze).toHaveBeenCalledWith(latest.content);
+      expect(save).toHaveBeenCalled();
+      expect(latest.analysis).toBe(fresh);
+      expect(result.latestVersion?.analysis?.trustScore).toBe(72);
+    });
+
+    it('throws ForbiddenException for non-owners', async () => {
+      const doc = makeScriptDoc();
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+
+      await expect(service.reanalyzeLatest(scriptId, otherUserId)).rejects.toThrow(ForbiddenException);
+      expect(analysisService.analyze).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the script does not exist', async () => {
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
+
+      await expect(service.reanalyzeLatest('bad-id', ownerId)).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFoundException when no versions exist yet', async () => {
+      const doc = makeScriptDoc();
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+      versionsService.findLatest.mockResolvedValue(null);
+
+      await expect(service.reanalyzeLatest(scriptId, ownerId)).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('updateMetadata', () => {
     it('updates the provided fields when called by the owner', async () => {
       const doc = makeScriptDoc({ name: 'old', description: 'old desc', url: undefined });
