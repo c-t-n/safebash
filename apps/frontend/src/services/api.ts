@@ -64,6 +64,12 @@ export const updateScript = (token: string, id: string, data: UpdateScriptData) 
     body: JSON.stringify(data),
   });
 
+export const reanalyzeScript = (token: string, id: string) =>
+  request<Script>(`/scripts/${id}/reanalyze`, {
+    method: 'POST',
+    headers: bearer(token),
+  });
+
 export const analyzeScript = (url: string) =>
   request('/scripts/analyze', {
     method: 'POST',

@@ -90,6 +90,30 @@ export class ScriptsService {
     return this.toDetailDto(script, version);
   }
 
+  async reanalyzeLatest(
+    id: string,
+    requestingUserId: string,
+  ): Promise<ScriptResponseDto> {
+    const script = await this.scriptModel.findById(id).exec();
+    if (!script) {
+      throw new NotFoundException(`Script with ID ${id} not found`);
+    }
+    if (script.ownerId.toString() !== requestingUserId) {
+      throw new ForbiddenException('Only the script owner can re-analyze');
+    }
+
+    const latest = await this.versionsService.findLatest(id);
+    if (!latest) {
+      throw new NotFoundException(`No versions found for script ${id}`);
+    }
+
+    const analysis = await this.analysisService.analyze(latest.content);
+    latest.analysis = analysis as unknown as Record<string, unknown>;
+    await latest.save();
+
+    return this.toDetailDto(script, latest);
+  }
+
   async updateMetadata(
     id: string,
     dto: UpdateScriptDto,
