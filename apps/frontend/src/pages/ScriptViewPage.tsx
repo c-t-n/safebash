@@ -61,8 +61,12 @@ function lineLabel(l: LineExplanation): string {
     : String(l.lineNumber);
 }
 
+/** Hidden in the line-by-line view: blanks and comments add no signal. */
+const isExplanationVisible = (l: LineExplanation): boolean =>
+  l.source !== 'empty' && l.source !== 'comment';
+
 function LineRows({ lines, vocab }: { lines: LineExplanation[]; vocab: Vocab }) {
-  const visible = lines.filter((l) => l.source !== 'empty');
+  const visible = lines.filter(isExplanationVisible);
   return (
     <div className="line-table">
       {visible.map((l) => (
@@ -180,7 +184,7 @@ export default function ScriptViewPage() {
             </section>
           )}
 
-          {lines && lines.some((l) => l.source !== 'empty') && (
+          {lines && lines.some(isExplanationVisible) && (
             <section className="section">
               <h2 className="section-title">line by line</h2>
               <LineRows lines={lines} vocab={vocab} />
