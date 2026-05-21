@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import * as https from 'https';
-import * as http from 'http';
 import { ExplainerService, LineExplanation } from './explainer/explainer.service';
 import { ScriptSummary } from './explainer/llm.client';
+import { ScriptFetcher } from './script-fetcher.service';
 
 export interface AnalysisResult {
   trustScore: number;
@@ -59,7 +58,10 @@ const SAFE_PATTERNS: Array<{ pattern: RegExp; message: string; bonus: number }> 
 
 @Injectable()
 export class AnalysisService {
-  constructor(private readonly explainer: ExplainerService) {}
+  constructor(
+    private readonly explainer: ExplainerService,
+    private readonly fetcher: ScriptFetcher,
+  ) {}
 
   async analyze(content: string): Promise<AnalysisResult> {
     const risks: string[] = [];
@@ -104,41 +106,7 @@ export class AnalysisService {
   }
 
   async analyzeFromUrl(url: string): Promise<AnalysisResult & { url: string }> {
-    const content = await this.fetchContent(url);
+    const content = await this.fetcher.fetchText(url);
     return { url, ...(await this.analyze(content)) };
-  }
-
-  private fetchContent(url: string, redirectsLeft = 5): Promise<string> {
-    return new Promise((resolve, reject) => {
-      if (redirectsLeft === 0) {
-        reject(new Error('Too many redirects'));
-        return;
-      }
-
-      const client = url.startsWith('https') ? https : http;
-      const req = client.get(url, (res) => {
-        if (
-          res.statusCode &&
-          [301, 302, 307, 308].includes(res.statusCode) &&
-          res.headers.location
-        ) {
-          resolve(this.fetchContent(res.headers.location, redirectsLeft - 1));
-          return;
-        }
-        if (res.statusCode !== 200) {
-          reject(new Error(`Failed to fetch script: HTTP ${res.statusCode}`));
-          return;
-        }
-        let data = '';
-        res.on('data', (chunk: Buffer) => (data += chunk.toString()));
-        res.on('end', () => resolve(data));
-      });
-
-      req.on('error', reject);
-      req.setTimeout(10_000, () => {
-        req.destroy();
-        reject(new Error('Request timed out'));
-      });
-    });
   }
 }

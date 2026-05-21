@@ -1,22 +1,26 @@
 import { useState, FormEvent, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload } from 'lucide-react';
-import { createScript } from '../services/api';
+import { Check, Download, Upload } from 'lucide-react';
+import { createScript, fetchScriptFromUrl } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { Layout } from '../components/Layout';
 
-type InputMode = 'paste' | 'upload';
+type InputMode = 'paste' | 'upload' | 'url';
 
 const DEFAULT_CONTENT = '#!/bin/bash\nset -e\n\n';
 
 export default function ScriptCreatePage() {
-  const [name, setName]             = useState('');
+  const [name, setName]               = useState('');
   const [description, setDescription] = useState('');
-  const [content, setContent]       = useState(DEFAULT_CONTENT);
-  const [mode, setMode]             = useState<InputMode>('paste');
-  const [fileName, setFileName]     = useState<string | null>(null);
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState<string | null>(null);
+  const [content, setContent]         = useState(DEFAULT_CONTENT);
+  const [mode, setMode]               = useState<InputMode>('paste');
+  const [fileName, setFileName]       = useState<string | null>(null);
+  const [sourceUrl, setSourceUrl]     = useState('');
+  const [fetchedUrl, setFetchedUrl]   = useState<string | null>(null);
+  const [fetching, setFetching]       = useState(false);
+  const [fetchError, setFetchError]   = useState<string | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
 
   const fileRef   = useRef<HTMLInputElement>(null);
   const { token } = useAuth();
@@ -31,6 +35,23 @@ export default function ScriptCreatePage() {
     reader.readAsText(file);
   };
 
+  const handleFetch = async () => {
+    if (!token || !sourceUrl.trim()) return;
+    setFetchError(null);
+    setFetching(true);
+    try {
+      const res = await fetchScriptFromUrl(token, sourceUrl.trim());
+      setContent(res.content);
+      setFetchedUrl(res.url);
+      if (!name && res.suggestedName) setName(res.suggestedName);
+    } catch (err: unknown) {
+      setFetchError(err instanceof Error ? err.message : 'Failed to fetch URL');
+      setFetchedUrl(null);
+    } finally {
+      setFetching(false);
+    }
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!token) return;
@@ -41,6 +62,8 @@ export default function ScriptCreatePage() {
         name,
         content,
         ...(description.trim() ? { description: description.trim() } : {}),
+        // Persist the source URL when the user fetched from one.
+        ...(mode === 'url' && fetchedUrl ? { url: fetchedUrl } : {}),
       });
       navigate('/scripts');
     } catch (err: unknown) {
@@ -50,13 +73,17 @@ export default function ScriptCreatePage() {
     }
   };
 
+  const canSubmit = !loading && content.trim().length > 0 && name.trim().length > 0;
+  const fetchedLineCount = fetchedUrl ? content.split('\n').length : 0;
+
   return (
     <Layout>
       <div className="page-head">
         <div>
           <h1 className="page-title">Publish a script</h1>
           <p className="page-subtitle">
-            Upload or paste a bash script. SafeBash hashes, audits, and serves it at a stable URL.
+            Upload, paste, or pull a bash script from an existing URL. SafeBash hashes,
+            audits, and serves it at a stable URL.
           </p>
         </div>
       </div>
@@ -108,9 +135,16 @@ export default function ScriptCreatePage() {
               >
                 Upload .sh
               </button>
+              <button
+                type="button"
+                className={`mode-tab${mode === 'url' ? ' active' : ''}`}
+                onClick={() => setMode('url')}
+              >
+                From URL
+              </button>
             </div>
 
-            {mode === 'upload' ? (
+            {mode === 'upload' && (
               <div className="file-drop" onClick={() => fileRef.current?.click()}>
                 <input
                   ref={fileRef}
@@ -127,7 +161,54 @@ export default function ScriptCreatePage() {
                   </span>
                 )}
               </div>
-            ) : (
+            )}
+
+            {mode === 'url' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="url"
+                    className="field-input"
+                    value={sourceUrl}
+                    onChange={(e) => setSourceUrl(e.target.value)}
+                    placeholder="https://install.example.com/setup.sh"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleFetch();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={handleFetch}
+                    disabled={fetching || !sourceUrl.trim()}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    <Download size={13} /> {fetching ? 'Fetching…' : 'Fetch'}
+                  </button>
+                </div>
+                {fetchError && <div className="form-error">{fetchError}</div>}
+                {fetchedUrl && !fetchError && (
+                  <div className="pill pill--good" style={{ alignSelf: 'flex-start' }}>
+                    <Check size={11} strokeWidth={2.5} />
+                    Fetched {fetchedLineCount} lines from{' '}
+                    <span className="mono">{fetchedUrl}</span>
+                  </div>
+                )}
+                <textarea
+                  className="field-textarea"
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  spellCheck={false}
+                  placeholder="(content will appear here after Fetch — you can still edit it before publishing)"
+                  required
+                />
+              </div>
+            )}
+
+            {mode === 'paste' && (
               <textarea
                 className="field-textarea"
                 value={content}
@@ -139,7 +220,7 @@ export default function ScriptCreatePage() {
           </div>
 
           <div className="form-actions">
-            <button className="btn btn--ink" type="submit" disabled={loading}>
+            <button className="btn btn--ink" type="submit" disabled={!canSubmit}>
               {loading ? 'Publishing…' : 'Publish script'}
             </button>
             <button

@@ -6,6 +6,7 @@ import { VersionsService } from './versions.service';
 import { AnalysisService } from './analysis.service';
 import { ExplainerService } from './explainer/explainer.service';
 import { LlmExplainerClient } from './explainer/llm.client';
+import { ScriptFetcher } from './script-fetcher.service';
 import { Script, ScriptSchema } from './schemas/script.schema';
 import { ScriptVersion, ScriptVersionSchema } from './schemas/script-version.schema';
 import { AuthModule } from '../auth/auth.module';
@@ -25,6 +26,7 @@ import { AuthModule } from '../auth/auth.module';
     AnalysisService,
     ExplainerService,
     LlmExplainerClient,
+    ScriptFetcher,
   ],
 })
 export class ScriptsModule {}

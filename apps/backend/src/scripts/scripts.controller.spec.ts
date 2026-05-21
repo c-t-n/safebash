@@ -4,6 +4,7 @@ import { ScriptsController } from './scripts.controller';
 import { ScriptsService } from './scripts.service';
 import { VersionsService } from './versions.service';
 import { AnalysisService, AnalysisResult } from './analysis.service';
+import { ScriptFetcher } from './script-fetcher.service';
 import { ScriptResponseDto } from './dto/script-response.dto';
 import { VersionResponseDto } from './dto/version-response.dto';
 import { JwtUser } from '../auth/strategies/jwt.strategy';
@@ -74,6 +75,10 @@ describe('ScriptsController', () => {
         {
           provide: AnalysisService,
           useValue: { analyze: jest.fn(), analyzeFromUrl: jest.fn() },
+        },
+        {
+          provide: ScriptFetcher,
+          useValue: { fetchText: jest.fn(), suggestedName: jest.fn() },
         },
       ],
     }).compile();

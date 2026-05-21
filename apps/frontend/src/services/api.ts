@@ -56,3 +56,16 @@ export const analyzeScript = (url: string) =>
     method: 'POST',
     body: JSON.stringify({ url }),
   });
+
+export interface FetchUrlResult {
+  url: string;
+  content: string;
+  suggestedName?: string;
+}
+
+export const fetchScriptFromUrl = (token: string, url: string) =>
+  request<FetchUrlResult>('/scripts/fetch-url', {
+    method: 'POST',
+    headers: bearer(token),
+    body: JSON.stringify({ url }),
+  });
