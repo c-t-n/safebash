@@ -6,6 +6,7 @@ import {
   templatedSummary,
 } from './dictionary';
 import { LlmExplainerClient, ScriptSummary } from './llm.client';
+import { detectUnits, explainBlock, LogicalLine } from './blocks';
 
 export interface LineExplanation {
   lineNumber: number;
@@ -15,24 +16,12 @@ export interface LineExplanation {
   content: string;
   tech: string;
   plain: string;
-  source: 'dict' | 'llm' | 'comment' | 'empty' | 'unknown';
+  source: 'dict' | 'llm' | 'comment' | 'empty' | 'unknown' | 'block';
 }
 
 export interface ScriptExplanation {
   summary: ScriptSummary;
   lines: LineExplanation[];
-}
-
-/**
- * Folds bash backslash continuations together. A line continues to the next
- * when it ends with an odd number of trailing `\` characters (so `\\` is an
- * escaped backslash, not a continuation).
- */
-interface LogicalLine {
-  startLine: number;          // 1-based
-  endLine: number;            // 1-based; equals startLine for single-line commands
-  raw: string;                // original, preserving newlines for display
-  joined: string;             // continuations folded into a single line, used for matching
 }
 
 function endsWithContinuation(line: string): boolean {
@@ -41,6 +30,7 @@ function endsWithContinuation(line: string): boolean {
   return m[1].length % 2 === 1;
 }
 
+/** Folds bash backslash continuations into a single logical line. */
 function foldLogicalLines(content: string): LogicalLine[] {
   const raw = content.split('\n');
   const out: LogicalLine[] = [];
@@ -53,19 +43,12 @@ function foldLogicalLines(content: string): LogicalLine[] {
       buf.push(raw[i]);
     }
     const end = i + 1;
-    // For matching we drop the trailing `\` and join with a space so a
-    // command like `curl -fsSL \\\n  https://...` looks like one line.
     const joined = buf
       .map((l, idx) => (idx < buf.length - 1 ? l.replace(/\\+$/, '') : l))
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
-    out.push({
-      startLine: start,
-      endLine: end,
-      raw: buf.join('\n'),
-      joined,
-    });
+    out.push({ startLine: start, endLine: end, raw: buf.join('\n'), joined });
     i++;
   }
   return out;
@@ -77,11 +60,28 @@ export class ExplainerService {
 
   async explain(content: string): Promise<ScriptExplanation> {
     const logical = foldLogicalLines(content);
+    const units = detectUnits(logical);
     const lines: LineExplanation[] = [];
     const matchedCategories = new Set<DictCategory>();
     const unmatched: Array<{ index: number; lineNumber: number; content: string }> = [];
 
-    for (const l of logical) {
+    for (const unit of units) {
+      if (unit.type === 'block') {
+        const b = unit.block;
+        const explanation = explainBlock(b);
+        matchedCategories.add(explanation.category);
+        lines.push({
+          lineNumber: b.startLine,
+          endLineNumber: b.endLine !== b.startLine ? b.endLine : undefined,
+          content: b.raw,
+          tech: explanation.tech,
+          plain: explanation.plain,
+          source: 'block',
+        });
+        continue;
+      }
+
+      const l = unit.line;
       const base = {
         lineNumber: l.startLine,
         ...(l.endLine !== l.startLine ? { endLineNumber: l.endLine } : {}),

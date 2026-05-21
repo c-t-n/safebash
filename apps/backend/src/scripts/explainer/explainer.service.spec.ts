@@ -93,6 +93,120 @@ describe('ExplainerService', () => {
       expect(result.lines).toHaveLength(2);
       expect(result.lines[0].endLineNumber).toBeUndefined();
     });
+
+    it('collapses a multi-line if/fi block into a single explanation', async () => {
+      const script = [
+        '#!/bin/bash',
+        'if [ -d /tmp ]; then',
+        '  echo "yes"',
+        '  echo "still yes"',
+        'fi',
+      ].join('\n');
+
+      const result = await service.explain(script);
+
+      // shebang + the block
+      expect(result.lines).toHaveLength(2);
+      const block = result.lines[1];
+      expect(block.source).toBe('block');
+      expect(block.lineNumber).toBe(2);
+      expect(block.endLineNumber).toBe(5);
+      expect(block.content.split('\n')).toHaveLength(4);
+      expect(block.tech).toMatch(/Conditional block/);
+      expect(block.plain).toMatch(/-d \/tmp/);
+    });
+
+    it('collapses a multi-line for/done block', async () => {
+      const script = [
+        'for f in *.sh; do',
+        '  chmod +x "$f"',
+        '  echo "$f"',
+        'done',
+      ].join('\n');
+
+      const result = await service.explain(script);
+
+      expect(result.lines).toHaveLength(1);
+      const block = result.lines[0];
+      expect(block.source).toBe('block');
+      expect(block.lineNumber).toBe(1);
+      expect(block.endLineNumber).toBe(4);
+      expect(block.plain).toMatch(/every item/);
+      expect(block.plain).toMatch(/f\)/);
+    });
+
+    it('collapses a case/esac block', async () => {
+      const script = [
+        'case "$1" in',
+        '  start) echo on  ;;',
+        '  stop)  echo off ;;',
+        'esac',
+      ].join('\n');
+
+      const result = await service.explain(script);
+
+      expect(result.lines).toHaveLength(1);
+      expect(result.lines[0].source).toBe('block');
+      expect(result.lines[0].endLineNumber).toBe(4);
+      expect(result.lines[0].tech).toMatch(/Multi-way branch/);
+    });
+
+    it('collapses a function block', async () => {
+      const script = [
+        'greet() {',
+        '  echo "hi"',
+        '}',
+        'greet',
+      ].join('\n');
+
+      const result = await service.explain(script);
+
+      // function block + the trailing call
+      expect(result.lines).toHaveLength(2);
+      const fn = result.lines[0];
+      expect(fn.source).toBe('block');
+      expect(fn.endLineNumber).toBe(3);
+      expect(fn.tech).toContain('greet');
+    });
+
+    it('still treats single-line if/fi as a regular dict match', async () => {
+      const result = await service.explain('if [ -d /tmp ]; then echo yes; fi');
+      expect(result.lines).toHaveLength(1);
+      expect(result.lines[0].source).toBe('dict'); // not 'block'
+    });
+
+    it('nested blocks: outer block subsumes the inner one', async () => {
+      const script = [
+        'for f in *.sh; do',
+        '  if [ -x "$f" ]; then',
+        '    echo "$f"',
+        '  fi',
+        'done',
+      ].join('\n');
+
+      const result = await service.explain(script);
+
+      expect(result.lines).toHaveLength(1);
+      const block = result.lines[0];
+      expect(block.source).toBe('block');
+      expect(block.lineNumber).toBe(1);
+      expect(block.endLineNumber).toBe(5);
+      // The outer `for` describes it, not the inner `if`
+      expect(block.tech).toMatch(/Iterates/);
+    });
+
+    it('degrades gracefully when a block is left unclosed', async () => {
+      const script = [
+        'if [ -d /tmp ]; then',
+        '  echo "yes"',
+      ].join('\n');
+
+      const result = await service.explain(script);
+
+      // No crash — falls back to per-line explanations.
+      expect(result.lines.length).toBeGreaterThan(0);
+      expect(result.lines.every((l) => l.source !== 'block')).toBe(true);
+    });
   });
 
   describe('hybrid path (LLM available)', () => {

@@ -19,7 +19,7 @@ export interface LineExplanation {
   content: string;
   tech: string;
   plain: string;
-  source: 'dict' | 'llm' | 'comment' | 'empty' | 'unknown';
+  source: 'dict' | 'llm' | 'comment' | 'empty' | 'unknown' | 'block';
 }
 
 export interface AnalysisResult {
