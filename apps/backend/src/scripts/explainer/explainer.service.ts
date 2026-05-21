@@ -6,7 +6,7 @@ import {
   templatedSummary,
 } from './dictionary';
 import { LlmExplainerClient, ScriptSummary } from './llm.client';
-import { detectUnits, explainBlock, LogicalLine } from './blocks';
+import { BlockKind, blockSymbolName, detectUnits, explainBlock, LogicalLine } from './blocks';
 
 export interface LineExplanation {
   lineNumber: number;
@@ -17,6 +17,10 @@ export interface LineExplanation {
   tech: string;
   plain: string;
   source: 'dict' | 'llm' | 'comment' | 'empty' | 'unknown' | 'block';
+  /** For block units, the structural kind (if / for / function / …). */
+  blockKind?: BlockKind;
+  /** For function blocks, the name of the function (without parens). */
+  symbolName?: string;
 }
 
 export interface ScriptExplanation {
@@ -69,6 +73,7 @@ export class ExplainerService {
       if (unit.type === 'block') {
         const b = unit.block;
         const explanation = explainBlock(b);
+        const symbolName = blockSymbolName(b);
         matchedCategories.add(explanation.category);
         lines.push({
           lineNumber: b.startLine,
@@ -77,6 +82,8 @@ export class ExplainerService {
           tech: explanation.tech,
           plain: explanation.plain,
           source: 'block',
+          blockKind: b.kind,
+          ...(symbolName ? { symbolName } : {}),
         });
         continue;
       }

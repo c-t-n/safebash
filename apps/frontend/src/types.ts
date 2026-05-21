@@ -13,6 +13,8 @@ export interface ScriptSummary {
   plain: string;
 }
 
+export type BlockKind = 'if' | 'case' | 'for' | 'while' | 'until' | 'function';
+
 export interface LineExplanation {
   lineNumber: number;
   endLineNumber?: number;
@@ -20,6 +22,8 @@ export interface LineExplanation {
   tech: string;
   plain: string;
   source: 'dict' | 'llm' | 'comment' | 'empty' | 'unknown' | 'block';
+  blockKind?: BlockKind;
+  symbolName?: string;
 }
 
 export interface AnalysisResult {
