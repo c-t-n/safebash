@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -16,6 +17,7 @@ import { ScriptsService } from './scripts.service';
 import { VersionsService } from './versions.service';
 import { AnalysisService } from './analysis.service';
 import { CreateScriptDto } from './dto/create-script.dto';
+import { UpdateScriptDto } from './dto/update-script.dto';
 import { CreateVersionDto } from './dto/create-version.dto';
 import { FetchUrlDto, FetchUrlResponseDto } from './dto/fetch-url.dto';
 import { ScriptResponseDto } from './dto/script-response.dto';
@@ -82,6 +84,16 @@ export class ScriptsController {
     const content = await this.scriptsService.getRawContent(id);
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.send(content);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  updateMetadata(
+    @Param('id') id: string,
+    @Body() dto: UpdateScriptDto,
+    @CurrentUser() user: JwtUser,
+  ): Promise<ScriptResponseDto> {
+    return this.scriptsService.updateMetadata(id, dto, user.id);
   }
 
   @Delete(':id')

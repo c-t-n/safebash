@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { AlertTriangle, Check, ChevronLeft, Clipboard, FileCode } from 'lucide-react';
-import { getScript } from '../services/api';
+import { AlertTriangle, Check, ChevronLeft, Clipboard, FileCode, Pencil, X } from 'lucide-react';
+import { getScript, updateScript } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { Layout } from '../components/Layout';
 import type { LineExplanation, Script } from '../types';
 
@@ -126,11 +127,20 @@ function ExplanationCode({ lines, vocab }: { lines: LineExplanation[]; vocab: Vo
 }
 
 export default function ScriptViewPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id }            = useParams<{ id: string }>();
+  const { user, token }   = useAuth();
   const [script, setScript]   = useState<Script | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [vocab, setVocab]     = useState<Vocab>('plain');
+
+  // Inline metadata edit
+  const [editing, setEditing]               = useState(false);
+  const [editName, setEditName]             = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editUrl, setEditUrl]               = useState('');
+  const [saving, setSaving]                 = useState(false);
+  const [saveError, setSaveError]           = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -142,6 +152,50 @@ export default function ScriptViewPage() {
       )
       .finally(() => setLoading(false));
   }, [id]);
+
+  const startEdit = () => {
+    if (!script) return;
+    setEditName(script.name);
+    setEditDescription(script.description ?? '');
+    setEditUrl(script.url ?? '');
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setSaveError(null);
+  };
+
+  const saveEdit = async () => {
+    if (!script || !token) return;
+    setSaveError(null);
+    setSaving(true);
+    try {
+      const payload: { name?: string; description?: string; url?: string } = {};
+      const trimmedName = editName.trim();
+      if (trimmedName && trimmedName !== script.name) payload.name = trimmedName;
+      if (editDescription !== (script.description ?? ''))
+        payload.description = editDescription;
+      const trimmedUrl = editUrl.trim();
+      if (trimmedUrl && trimmedUrl !== (script.url ?? ''))
+        payload.url = trimmedUrl;
+
+      if (Object.keys(payload).length === 0) {
+        setEditing(false);
+        return;
+      }
+      const updated = await updateScript(token, script.id, payload);
+      setScript(updated);
+      setEditing(false);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const canEdit = script && user?.id === script.ownerId;
 
   const installUrl = `${window.location.origin}/api/scripts/${id}/raw`;
   const installCmd = `curl -fsSL ${installUrl} | sh`;
@@ -164,7 +218,7 @@ export default function ScriptViewPage() {
         <>
           {/* Breadcrumb + heading */}
           <div className="page-head">
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-3)', marginBottom: 8 }}>
                 <Link to="/scripts" style={{ color: 'var(--ink-3)' }}>Library</Link>
                 <span>/</span>
@@ -172,39 +226,108 @@ export default function ScriptViewPage() {
                 <span>/</span>
                 <span className="mono" style={{ color: 'var(--ink)' }}>v{script.currentVersionNumber}</span>
               </div>
-              <h1 className="page-title">
-                {script.name}
-                <span style={{ color: 'var(--ink-3)', fontWeight: 400, fontSize: 20 }}>
-                  {' · '}v{script.currentVersionNumber}
-                </span>
-              </h1>
-              {script.description && (
-                <p className="page-subtitle" style={{ marginTop: 6 }}>{script.description}</p>
-              )}
-              <div className="meta-strip" style={{ marginTop: 10 }}>
-                {verdict && (
-                  <span className={`pill pill--${verdict === 'trusted' ? 'good' : verdict === 'caution' ? 'warn' : 'bad'}`}>
-                    <span className="mono" style={{ fontWeight: 600 }}>{score}</span>
-                    <span>{verdict}</span>
-                  </span>
-                )}
-                <span>{lineCount} lines</span>
-                <span>·</span>
-                <span>created {new Date(script.createdAt).toLocaleDateString('en-CA')}</span>
-                <span>·</span>
-                <span>updated {new Date(script.updatedAt).toLocaleDateString('en-CA')}</span>
-                {script.url && (
-                  <>
+
+              {!editing ? (
+                <>
+                  <h1 className="page-title">
+                    {script.name}
+                    <span style={{ color: 'var(--ink-3)', fontWeight: 400, fontSize: 20 }}>
+                      {' · '}v{script.currentVersionNumber}
+                    </span>
+                  </h1>
+                  {script.description && (
+                    <p className="page-subtitle" style={{ marginTop: 6 }}>{script.description}</p>
+                  )}
+                  <div className="meta-strip" style={{ marginTop: 10 }}>
+                    {verdict && (
+                      <span className={`pill pill--${verdict === 'trusted' ? 'good' : verdict === 'caution' ? 'warn' : 'bad'}`}>
+                        <span className="mono" style={{ fontWeight: 600 }}>{score}</span>
+                        <span>{verdict}</span>
+                      </span>
+                    )}
+                    <span>{lineCount} lines</span>
                     <span>·</span>
-                    <a href={script.url} target="_blank" rel="noreferrer" style={{ color: 'var(--ink-2)' }}>source</a>
-                  </>
-                )}
-              </div>
+                    <span>created {new Date(script.createdAt).toLocaleDateString('en-CA')}</span>
+                    <span>·</span>
+                    <span>updated {new Date(script.updatedAt).toLocaleDateString('en-CA')}</span>
+                    {script.url && (
+                      <>
+                        <span>·</span>
+                        <a href={script.url} target="_blank" rel="noreferrer" style={{ color: 'var(--ink-2)' }}>source</a>
+                      </>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 560 }}>
+                  {saveError && <div className="form-error">{saveError}</div>}
+                  <div className="field">
+                    <label className="field-label" htmlFor="edit-name">Name</label>
+                    <input
+                      id="edit-name"
+                      className="field-input"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      autoFocus
+                      required
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field-label" htmlFor="edit-desc">
+                      Description <span className="field-hint">— optional</span>
+                    </label>
+                    <input
+                      id="edit-desc"
+                      className="field-input"
+                      value={editDescription}
+                      onChange={(e) => setEditDescription(e.target.value)}
+                      placeholder="What does this script do?"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field-label" htmlFor="edit-url">
+                      Source URL <span className="field-hint">— optional</span>
+                    </label>
+                    <input
+                      id="edit-url"
+                      type="url"
+                      className="field-input"
+                      value={editUrl}
+                      onChange={(e) => setEditUrl(e.target.value)}
+                      placeholder="https://install.example.com/setup.sh"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
+
             <div className="page-actions">
-              <Link to="/scripts" className="btn">
-                <ChevronLeft size={13} /> Back
-              </Link>
+              {editing ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--ink"
+                    onClick={saveEdit}
+                    disabled={saving || editName.trim().length === 0}
+                  >
+                    <Check size={13} strokeWidth={2.2} /> {saving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button type="button" className="btn btn--ghost" onClick={cancelEdit} disabled={saving}>
+                    <X size={13} /> Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  {canEdit && (
+                    <button type="button" className="btn" onClick={startEdit}>
+                      <Pencil size={13} /> Edit
+                    </button>
+                  )}
+                  <Link to="/scripts" className="btn">
+                    <ChevronLeft size={13} /> Back
+                  </Link>
+                </>
+              )}
             </div>
           </div>
 

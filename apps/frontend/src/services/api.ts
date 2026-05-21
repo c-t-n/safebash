@@ -51,6 +51,19 @@ export const createScript = (token: string, data: CreateScriptData) =>
     body: JSON.stringify(data),
   });
 
+export interface UpdateScriptData {
+  name?: string;
+  description?: string;
+  url?: string;
+}
+
+export const updateScript = (token: string, id: string, data: UpdateScriptData) =>
+  request<Script>(`/scripts/${id}`, {
+    method: 'PATCH',
+    headers: bearer(token),
+    body: JSON.stringify(data),
+  });
+
 export const analyzeScript = (url: string) =>
   request('/scripts/analyze', {
     method: 'POST',

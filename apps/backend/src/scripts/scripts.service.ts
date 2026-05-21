@@ -5,6 +5,7 @@ import { Script, ScriptDocument } from './schemas/script.schema';
 import { VersionsService } from './versions.service';
 import { AnalysisService } from './analysis.service';
 import { CreateScriptDto } from './dto/create-script.dto';
+import { UpdateScriptDto } from './dto/update-script.dto';
 import { ScriptResponseDto, VersionSummaryDto } from './dto/script-response.dto';
 import { ScriptVersionDocument } from './schemas/script-version.schema';
 
@@ -87,6 +88,27 @@ export class ScriptsService {
     await script.save();
 
     return this.toDetailDto(script, version);
+  }
+
+  async updateMetadata(
+    id: string,
+    dto: UpdateScriptDto,
+    requestingUserId: string,
+  ): Promise<ScriptResponseDto> {
+    const script = await this.scriptModel.findById(id).exec();
+    if (!script) {
+      throw new NotFoundException(`Script with ID ${id} not found`);
+    }
+    if (script.ownerId.toString() !== requestingUserId) {
+      throw new ForbiddenException('Only the script owner can edit metadata');
+    }
+
+    if (dto.name !== undefined)        script.name = dto.name;
+    if (dto.description !== undefined) script.description = dto.description;
+    if (dto.url !== undefined)         script.url = dto.url;
+    await script.save();
+
+    return this.toDetailDto(script);
   }
 
   async delete(id: string): Promise<void> {
