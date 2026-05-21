@@ -214,6 +214,53 @@ describe('ScriptsService', () => {
     });
   });
 
+  describe('updateMetadata', () => {
+    it('updates the provided fields when called by the owner', async () => {
+      const doc = makeScriptDoc({ name: 'old', description: 'old desc', url: undefined });
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+
+      const result = await service.updateMetadata(
+        scriptId,
+        { name: 'new', description: 'new desc', url: 'https://example.com/x.sh' },
+        ownerId,
+      );
+
+      expect(doc.name).toBe('new');
+      expect(doc.description).toBe('new desc');
+      expect(doc.url).toBe('https://example.com/x.sh');
+      expect(doc.save).toHaveBeenCalled();
+      expect(result.name).toBe('new');
+    });
+
+    it('leaves unspecified fields alone', async () => {
+      const doc = makeScriptDoc({ name: 'keep-me', description: 'keep desc' });
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+
+      await service.updateMetadata(scriptId, { description: 'changed' }, ownerId);
+
+      expect(doc.name).toBe('keep-me');
+      expect(doc.description).toBe('changed');
+    });
+
+    it('throws ForbiddenException when called by a non-owner', async () => {
+      const doc = makeScriptDoc();
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
+
+      await expect(
+        service.updateMetadata(scriptId, { name: 'nope' }, otherUserId),
+      ).rejects.toThrow(ForbiddenException);
+      expect(doc.save).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when script does not exist', async () => {
+      mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(null) });
+
+      await expect(
+        service.updateMetadata('bad-id', { name: 'whatever' }, ownerId),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('delete', () => {
     it('deletes the script and all its versions', async () => {
       const doc = makeScriptDoc();
