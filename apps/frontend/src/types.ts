@@ -24,6 +24,8 @@ export interface LineExplanation {
   source: 'dict' | 'llm' | 'comment' | 'empty' | 'unknown' | 'block';
   blockKind?: BlockKind;
   symbolName?: string;
+  severity?: 'risk' | 'warning';
+  severityReason?: string;
 }
 
 export interface AnalysisResult {

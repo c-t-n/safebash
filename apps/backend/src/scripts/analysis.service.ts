@@ -94,6 +94,24 @@ export class AnalysisService {
     const trustScore = Math.max(0, Math.min(100, 100 - penalty + Math.min(bonus, 20)));
     const { summary, lines } = await this.explainer.explain(content);
 
+    // Per-line severity tagging. The explainer's `content` for each line
+    // (and for block units) is the raw source span, so we just re-run the
+    // rule patterns against it. Risks take precedence over warnings; we
+    // keep the first matching rule's message as the severityReason so
+    // the UI can surface it on hover.
+    const annotatedLines = lines.map((line) => {
+      const raw = line.content;
+      const risk = RISKS.find((r) => r.pattern.test(raw));
+      if (risk) {
+        return { ...line, severity: 'risk' as const, severityReason: risk.message };
+      }
+      const warning = WARNINGS.find((w) => w.pattern.test(raw));
+      if (warning) {
+        return { ...line, severity: 'warning' as const, severityReason: warning.message };
+      }
+      return line;
+    });
+
     return {
       trustScore,
       risks,
@@ -101,7 +119,7 @@ export class AnalysisService {
       safePatterns,
       analyzedAt: new Date(),
       summary,
-      lines,
+      lines: annotatedLines,
     };
   }
 

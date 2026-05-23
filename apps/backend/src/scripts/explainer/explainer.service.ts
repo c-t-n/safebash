@@ -21,6 +21,13 @@ export interface LineExplanation {
   blockKind?: BlockKind;
   /** For function blocks, the name of the function (without parens). */
   symbolName?: string;
+  /**
+   * Set by AnalysisService when the line's raw content matches a known
+   * risk or warning pattern. Drives row highlighting in the UI.
+   */
+  severity?: 'risk' | 'warning';
+  /** Human-readable description of the matched rule (for tooltip / a11y). */
+  severityReason?: string;
 }
 
 export interface ScriptExplanation {
@@ -68,6 +75,14 @@ export class ExplainerService {
     const lines: LineExplanation[] = [];
     const matchedCategories = new Set<DictCategory>();
     const unmatched: Array<{ index: number; lineNumber: number; content: string }> = [];
+    // Function blocks queued for an LLM pass — we always populate a templated
+    // fallback first so the response degrades gracefully if the LLM is down.
+    const functions: Array<{
+      index: number;
+      lineNumber: number;
+      name: string;
+      source: string;
+    }> = [];
 
     for (const unit of units) {
       if (unit.type === 'block') {
@@ -75,6 +90,7 @@ export class ExplainerService {
         const explanation = explainBlock(b);
         const symbolName = blockSymbolName(b);
         matchedCategories.add(explanation.category);
+        const idx = lines.length;
         lines.push({
           lineNumber: b.startLine,
           endLineNumber: b.endLine !== b.startLine ? b.endLine : undefined,
@@ -85,6 +101,14 @@ export class ExplainerService {
           blockKind: b.kind,
           ...(symbolName ? { symbolName } : {}),
         });
+        if (b.kind === 'function') {
+          functions.push({
+            index: idx,
+            lineNumber: b.startLine,
+            name: symbolName ?? '(anonymous)',
+            source: b.raw,
+          });
+        }
         continue;
       }
 
@@ -151,6 +175,29 @@ export class ExplainerService {
               tech: e.tech,
               plain: e.plain,
               source: 'llm',
+            };
+          }
+        }
+      }
+    }
+
+    // Functions get a dedicated LLM pass — the templated explainBlock() text
+    // is generic ("Creates a reusable command called X…") and rarely useful.
+    // We keep `source: 'block'` + `blockKind: 'function'` so the frontend
+    // folding UI still treats them as collapsible symbols.
+    if (this.llm.isAvailable() && functions.length > 0) {
+      const enriched = await this.llm.explainFunctions(
+        functions.map((f) => ({ lineNumber: f.lineNumber, name: f.name, source: f.source })),
+      );
+      if (enriched) {
+        const byLine = new Map(enriched.map((e) => [e.lineNumber, e]));
+        for (const f of functions) {
+          const e = byLine.get(f.lineNumber);
+          if (e) {
+            lines[f.index] = {
+              ...lines[f.index],
+              tech: e.tech,
+              plain: e.plain,
             };
           }
         }

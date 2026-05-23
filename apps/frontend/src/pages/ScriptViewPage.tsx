@@ -100,10 +100,22 @@ function lineLabel(l: LineExplanation): string {
     : String(l.lineNumber);
 }
 
-function rowToneFor(source: LineExplanation['source']): string {
-  if (source === 'unknown') return 'code-row--med';
-  if (source === 'block')   return 'code-row--block';
+function rowToneFor(l: LineExplanation): string {
+  // Severity wins over every other tone — a dangerous line should look
+  // dangerous even if it also happens to be inside a block.
+  if (l.severity === 'risk')    return 'code-row--risk';
+  if (l.severity === 'warning') return 'code-row--warn';
+  if (l.source === 'unknown')   return 'code-row--med';
+  if (l.source === 'block')     return 'code-row--block';
   return '';
+}
+
+/** Icon + color for the inline explanation note. Severity overrides source. */
+function noteStyleFor(l: LineExplanation): { color: string; iconKind: 'risk' | 'warn' | 'unknown' | 'ok' } {
+  if (l.severity === 'risk')    return { color: 'var(--bad)',  iconKind: 'risk' };
+  if (l.severity === 'warning') return { color: 'var(--warn)', iconKind: 'warn' };
+  if (l.source === 'unknown')   return { color: 'var(--warn)', iconKind: 'unknown' };
+  return { color: 'var(--good)', iconKind: 'ok' };
 }
 
 function ExplanationCode({
@@ -118,10 +130,21 @@ function ExplanationCode({
   return (
     <div className="code-grid">
       {visible.map((l) => {
-        const icon = l.source === 'unknown'
-          ? <AlertTriangle size={11} strokeWidth={2.2} />
-          : <Check size={11} strokeWidth={2.5} />;
-        const explanationColor = l.source === 'unknown' ? 'var(--warn)' : 'var(--good)';
+        const { color: explanationColor, iconKind } = noteStyleFor(l);
+        const icon =
+          iconKind === 'ok'
+            ? <Check size={11} strokeWidth={2.5} />
+            : <AlertTriangle size={11} strokeWidth={2.2} />;
+        const severityBadge = l.severity && l.severityReason
+          ? (
+            <span
+              className={`severity-badge severity-badge--${l.severity}`}
+              title={l.severityReason}
+            >
+              {l.severity === 'risk' ? 'risk' : 'warn'}
+            </span>
+          )
+          : null;
 
         if (isFunction(l)) {
           const expanded = expandedFns.has(l.lineNumber);
@@ -131,7 +154,7 @@ function ExplanationCode({
             <div
               key={l.lineNumber}
               id={`symbol-${l.lineNumber}`}
-              className={`code-line code-row--block code-row--fn${expanded ? ' code-row--fn-open' : ''}`}
+              className={`code-line ${rowToneFor(l)} code-row--fn${expanded ? ' code-row--fn-open' : ''}`}
             >
               <div className="code-num">{lineLabel(l)}</div>
               <div className="code-body">
@@ -150,13 +173,17 @@ function ExplanationCode({
                       ? l.content
                       : <>{firstLine} <span className="fn-fold-tag">{'{ … }'}</span></>}
                   </code>
+                  {severityBadge}
                 </div>
                 {!expanded && hiddenLines > 0 && (
                   <div className="fn-fold-meta">{hiddenLines} {hiddenLines === 1 ? 'line' : 'lines'} folded</div>
                 )}
                 <div className="code-note" style={{ color: explanationColor }}>
                   {icon}
-                  <span>{l[vocab]}</span>
+                  <span>
+                    {l.severityReason && <strong style={{ color: explanationColor }}>{l.severityReason}. </strong>}
+                    {l[vocab]}
+                  </span>
                 </div>
               </div>
             </div>
@@ -164,13 +191,19 @@ function ExplanationCode({
         }
 
         return (
-          <div key={l.lineNumber} className={`code-line ${rowToneFor(l.source)}`}>
+          <div key={l.lineNumber} className={`code-line ${rowToneFor(l)}`}>
             <div className="code-num">{lineLabel(l)}</div>
             <div className="code-body">
-              <code>{l.content || ' '}</code>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <code style={{ flex: 1, minWidth: 0 }}>{l.content || ' '}</code>
+                {severityBadge}
+              </div>
               <div className="code-note" style={{ color: explanationColor }}>
                 {icon}
-                <span>{l[vocab]}</span>
+                <span>
+                  {l.severityReason && <strong style={{ color: explanationColor }}>{l.severityReason}. </strong>}
+                  {l[vocab]}
+                </span>
               </div>
             </div>
           </div>
@@ -221,6 +254,7 @@ export default function ScriptViewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [vocab, setVocab]     = useState<Vocab>('plain');
+  const [codeTab, setCodeTab] = useState<'annotated' | 'raw'>('annotated');
 
   // Inline metadata edit
   const [editing, setEditing]               = useState(false);
@@ -509,43 +543,65 @@ export default function ScriptViewPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1.55fr 1fr', gap: 18, alignItems: 'start' }}>
             {/* LEFT — code + explanations */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
-              {(summary || (lines && lines.some(isExplanationVisible))) && (
-                <div className="card code-panel">
-                  <div className="card-header">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <FileCode size={14} />
-                      <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>line-by-line</span>
-                      <span className="pill" style={{ color: 'var(--ink-3)' }}>{lineCount} lines</span>
-                    </div>
-                    <VocabToggle value={vocab} onChange={setVocab} />
-                  </div>
-                  {summary && (
-                    <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', background: 'var(--header-tint)' }}>
-                      <div className="cap" style={{ marginBottom: 6 }}>Summary</div>
-                      <div style={{ fontSize: 13, color: 'var(--ink)' }}>{summary[vocab]}</div>
-                    </div>
-                  )}
-                  {lines && lines.some(isExplanationVisible) && (
-                    <ExplanationCode
-                      lines={lines}
-                      vocab={vocab}
-                      expandedFns={expandedFns}
-                      onToggleFn={toggleFn}
-                    />
-                  )}
-                </div>
-              )}
-
-              <div className="card">
+              <div className="card code-panel">
                 <div className="card-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <FileCode size={14} />
-                    <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>raw</span>
+                    <div className="seg" role="tablist" aria-label="Code view">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={codeTab === 'annotated'}
+                        className={`seg-btn${codeTab === 'annotated' ? ' active' : ''}`}
+                        onClick={() => setCodeTab('annotated')}
+                      >
+                        line-by-line
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={codeTab === 'raw'}
+                        className={`seg-btn${codeTab === 'raw' ? ' active' : ''}`}
+                        onClick={() => setCodeTab('raw')}
+                      >
+                        raw
+                      </button>
+                    </div>
+                    <span className="pill" style={{ color: 'var(--ink-3)' }}>{lineCount} lines</span>
                   </div>
+                  {codeTab === 'annotated' && (
+                    <VocabToggle value={vocab} onChange={setVocab} />
+                  )}
                 </div>
-                <div style={{ padding: 16 }}>
-                  <pre className="code-block">{content}</pre>
-                </div>
+
+                {codeTab === 'annotated' ? (
+                  <>
+                    {summary && (
+                      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', background: 'var(--header-tint)' }}>
+                        <div className="cap" style={{ marginBottom: 6 }}>Summary</div>
+                        <div style={{ fontSize: 13, color: 'var(--ink)' }}>{summary[vocab]}</div>
+                      </div>
+                    )}
+                    {lines && lines.some(isExplanationVisible) ? (
+                      <ExplanationCode
+                        lines={lines}
+                        vocab={vocab}
+                        expandedFns={expandedFns}
+                        onToggleFn={toggleFn}
+                      />
+                    ) : (
+                      !summary && (
+                        <div className="text-muted" style={{ padding: 16 }}>
+                          No annotated explanation available.
+                        </div>
+                      )
+                    )}
+                  </>
+                ) : (
+                  <div style={{ padding: 16 }}>
+                    <pre className="code-block">{content}</pre>
+                  </div>
+                )}
               </div>
             </div>
 

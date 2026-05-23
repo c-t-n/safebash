@@ -11,6 +11,7 @@ describe('ExplainerService', () => {
       isAvailable: jest.fn().mockReturnValue(llmAvailable),
       summarise: jest.fn(),
       explainLines: jest.fn(),
+      explainFunctions: jest.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -256,6 +257,41 @@ describe('ExplainerService', () => {
 
       expect(llm.explainLines).not.toHaveBeenCalled();
       expect(llm.summarise).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes function blocks through explainFunctions and overlays the result', async () => {
+      llm.summarise.mockResolvedValue({ tech: 's tech', plain: 's plain' });
+      llm.explainFunctions.mockResolvedValue([
+        { lineNumber: 1, tech: 'LLM fn tech', plain: 'LLM fn plain' },
+      ]);
+
+      const script = ['greet() {', '  echo "hi"', '}'].join('\n');
+      const result = await service.explain(script);
+
+      expect(llm.explainFunctions).toHaveBeenCalledTimes(1);
+      expect(llm.explainFunctions).toHaveBeenCalledWith([
+        { lineNumber: 1, name: 'greet', source: expect.stringContaining('echo "hi"') },
+      ]);
+
+      const fn = result.lines[0];
+      // Structural metadata preserved so the frontend folding UI still kicks in
+      expect(fn.source).toBe('block');
+      expect(fn.blockKind).toBe('function');
+      expect(fn.symbolName).toBe('greet');
+      // But the explanation text now comes from the LLM, not the templated fallback
+      expect(fn.tech).toBe('LLM fn tech');
+      expect(fn.plain).toBe('LLM fn plain');
+    });
+
+    it('keeps the templated function explanation when explainFunctions fails', async () => {
+      llm.summarise.mockResolvedValue({ tech: 's', plain: 's' });
+      llm.explainFunctions.mockResolvedValue(null);
+
+      const script = ['greet() {', '  echo "hi"', '}'].join('\n');
+      const result = await service.explain(script);
+
+      const fn = result.lines[0];
+      expect(fn.tech).toContain('greet'); // templated fallback survived
     });
 
     it('falls back to templated summary when summarise returns null', async () => {
