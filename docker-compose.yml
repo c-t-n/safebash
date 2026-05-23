@@ -18,6 +18,51 @@ services:
       timeout: 5s
       retries: 5
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: safebash-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - safebash-network
+    # Some Docker runtimes (e.g. OrbStack) inject HTTP_PROXY into every
+    # container; that proxy can't reach the Ollama model registry. Empty
+    # these out so model pulls go direct.
+    environment:
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # One-shot init service: pulls the model picked by $OLLAMA_MODEL the
+  # first time the stack boots, then exits. Backend depends on this
+  # completing so the explainer has a working model on first request.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: safebash-ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b}
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
+      - http_proxy=
+      - https_proxy=
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['ollama pull "$$OLLAMA_MODEL"']
+    networks:
+      - safebash-network
+    restart: "no"
+
   backend:
     build:
       context: .
@@ -33,13 +78,15 @@ services:
       - PORT=3001
       - CORS_ORIGIN=http://localhost:5173
       - MONGODB_URI=mongodb://mongodb:27017/safebash
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b}
     networks:
       - safebash-network
     depends_on:
       mongodb:
         condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
     command: pnpm --filter @safebash/backend run dev
 
   frontend:
@@ -68,3 +115,4 @@ networks:
 
 volumes:
   mongodb_data:
+  ollama_models:
