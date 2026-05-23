@@ -292,13 +292,36 @@ export default function ScriptViewPage() {
 
   useEffect(() => {
     if (!id) return;
-    setLoading(true);
-    getScript(id)
-      .then(setScript)
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : 'Failed to load script'),
-      )
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async (isFirst: boolean) => {
+      if (isFirst) setLoading(true);
+      try {
+        const fresh = await getScript(id);
+        if (cancelled) return;
+        setScript(fresh);
+        setError(null);
+        const status = fresh.latestVersion?.analysisStatus;
+        // Keep polling while the worker hasn't reported back. 2s is fast
+        // enough to feel responsive without hammering Mongo while the
+        // (often minute-long) LLM call runs.
+        if (status === 'pending' || status === 'processing') {
+          timer = setTimeout(() => tick(false), 2000);
+        }
+      } catch (err: unknown) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : 'Failed to load script');
+      } finally {
+        if (isFirst && !cancelled) setLoading(false);
+      }
+    };
+
+    tick(true);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [id]);
 
   const startEdit = () => {
@@ -350,6 +373,9 @@ export default function ScriptViewPage() {
     setReanalyzeError(null);
     setReanalyzing(true);
     try {
+      // Endpoint returns immediately with analysisStatus='pending'; the
+      // useEffect polling loop above will kick back in and tick every 2s
+      // until the worker flips status to 'completed' or 'failed'.
       const updated = await reanalyzeScript(token, script.id);
       setScript(updated);
     } catch (err: unknown) {
@@ -363,7 +389,11 @@ export default function ScriptViewPage() {
   const installCmd = `curl -fsSL ${installUrl} | sh`;
   const copyInstall = () => navigator.clipboard.writeText(installCmd);
 
-  const analysis = script?.latestVersion?.analysis;
+  const analysis       = script?.latestVersion?.analysis;
+  const analysisStatus = script?.latestVersion?.analysisStatus;
+  const analysisError  = script?.latestVersion?.analysisError;
+  const isAnalyzing    = analysisStatus === 'pending' || analysisStatus === 'processing';
+  const analysisFailed = analysisStatus === 'failed';
   const summary  = analysis?.summary;
   const lines    = analysis?.lines;
   const content  = script?.latestVersion?.content ?? '';
@@ -406,7 +436,19 @@ export default function ScriptViewPage() {
                     <p className="page-subtitle" style={{ marginTop: 6 }}>{script.description}</p>
                   )}
                   <div className="meta-strip" style={{ marginTop: 10 }}>
-                    {verdict && (
+                    {isAnalyzing && (
+                      <span className="pill" title="A worker is analysing this script in the background.">
+                        <RefreshCw size={11} className="spin" />
+                        <span>{analysisStatus === 'pending' ? 'queued' : 'analyzing…'}</span>
+                      </span>
+                    )}
+                    {analysisFailed && (
+                      <span className="pill pill--bad" title={analysisError ?? 'Analysis failed'}>
+                        <AlertTriangle size={11} />
+                        <span>analysis failed</span>
+                      </span>
+                    )}
+                    {verdict && !isAnalyzing && (
                       <span className={`pill pill--${verdict === 'trusted' ? 'good' : verdict === 'caution' ? 'warn' : 'bad'}`}>
                         <span className="mono" style={{ fontWeight: 600 }}>{score}</span>
                         <span>{verdict}</span>
@@ -576,6 +618,42 @@ export default function ScriptViewPage() {
 
                 {codeTab === 'annotated' ? (
                   <>
+                    {isAnalyzing && (
+                      <div
+                        style={{
+                          padding: '14px 16px',
+                          borderBottom: '1px solid var(--line)',
+                          background: 'var(--header-tint)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          color: 'var(--ink-2)',
+                          fontSize: 13,
+                        }}
+                      >
+                        <RefreshCw size={13} className="spin" />
+                        <span>
+                          {analysisStatus === 'pending'
+                            ? 'Queued for analysis…'
+                            : 'A worker is analysing this script. The page will refresh automatically when the result is ready.'}
+                        </span>
+                      </div>
+                    )}
+                    {analysisFailed && (
+                      <div
+                        style={{
+                          padding: '14px 16px',
+                          borderBottom: '1px solid var(--line)',
+                          background: 'var(--bad-bg)',
+                          color: 'var(--bad)',
+                          fontSize: 13,
+                        }}
+                      >
+                        <strong>Analysis failed.</strong>{' '}
+                        {analysisError ?? 'The worker reported an error.'} You can hit{' '}
+                        <em>Re-analyze</em> to try again.
+                      </div>
+                    )}
                     {summary && (
                       <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--line)', background: 'var(--header-tint)' }}>
                         <div className="cap" style={{ marginBottom: 6 }}>Summary</div>
@@ -590,7 +668,7 @@ export default function ScriptViewPage() {
                         onToggleFn={toggleFn}
                       />
                     ) : (
-                      !summary && (
+                      !summary && !isAnalyzing && !analysisFailed && (
                         <div className="text-muted" style={{ padding: 16 }}>
                           No annotated explanation available.
                         </div>
@@ -608,6 +686,20 @@ export default function ScriptViewPage() {
             {/* RIGHT — symbols + verdict + findings */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <SymbolPanel symbols={symbols} onJump={jumpToSymbol} />
+
+              {!analysis && isAnalyzing && (
+                <div className="card">
+                  <div className="card-body" style={{ padding: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <RefreshCw size={14} className="spin" />
+                    <div>
+                      <div className="cap" style={{ marginBottom: 4 }}>Verdict</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>
+                        Pending — waiting for the worker to finish.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {analysis && score !== undefined && (
                 <div className="card">

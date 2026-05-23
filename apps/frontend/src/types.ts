@@ -38,10 +38,14 @@ export interface AnalysisResult {
   lines?: LineExplanation[];
 }
 
+export type AnalysisStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
 export interface VersionSummary {
   versionNumber: number;
   content: string;
   analysis?: AnalysisResult;
+  analysisStatus: AnalysisStatus;
+  analysisError?: string;
   createdAt: string;
 }
 

@@ -39,17 +39,25 @@ export class VersionsService {
       .exec();
   }
 
+  /** Direct document lookup by ObjectId — used by the worker to load the
+   *  target version before running analysis. */
+  async findById(id: string): Promise<ScriptVersionDocument | null> {
+    return this.versionModel.findById(id).exec();
+  }
+
+  /** Creates a new version. With async analysis the analysis blob is filled
+   *  in later by the worker, so it's optional; status defaults to 'pending'. */
   async create(
     scriptId: string,
     versionNumber: number,
     content: string,
-    analysis: AnalysisResult,
+    analysis?: AnalysisResult,
   ): Promise<ScriptVersionDocument> {
     const version = new this.versionModel({
       scriptId: new Types.ObjectId(scriptId),
       versionNumber,
       content,
-      analysis,
+      ...(analysis ? { analysis, analysisStatus: 'completed' } : {}),
     });
     return version.save();
   }
@@ -67,6 +75,8 @@ export class VersionsService {
       versionNumber: version.versionNumber,
       content: version.content,
       analysis: version.analysis as AnalysisResult | undefined,
+      analysisStatus: version.analysisStatus,
+      analysisError: version.analysisError,
       createdAt: version.createdAt!,
     };
   }

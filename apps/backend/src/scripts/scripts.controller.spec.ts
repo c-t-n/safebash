@@ -32,6 +32,7 @@ const mockScript: ScriptResponseDto = {
     versionNumber: 1,
     content: '#!/bin/bash\nset -e\necho "hello"',
     analysis: mockAnalysis,
+    analysisStatus: 'completed',
     createdAt: new Date('2024-01-01'),
   },
   createdAt: new Date('2024-01-01'),
@@ -44,6 +45,7 @@ const mockVersion: VersionResponseDto = {
   versionNumber: 1,
   content: '#!/bin/bash\nset -e\necho "hello"',
   analysis: mockAnalysis,
+  analysisStatus: 'completed',
   createdAt: new Date('2024-01-01'),
 };
 

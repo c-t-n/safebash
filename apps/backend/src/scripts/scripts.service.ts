@@ -3,18 +3,18 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Script, ScriptDocument } from './schemas/script.schema';
 import { VersionsService } from './versions.service';
-import { AnalysisService } from './analysis.service';
 import { CreateScriptDto } from './dto/create-script.dto';
 import { UpdateScriptDto } from './dto/update-script.dto';
 import { ScriptResponseDto, VersionSummaryDto } from './dto/script-response.dto';
 import { ScriptVersionDocument } from './schemas/script-version.schema';
+import { AnalysisJobDispatcher } from '../jobs/analysis-job.dispatcher';
 
 @Injectable()
 export class ScriptsService {
   constructor(
     @InjectModel(Script.name) private readonly scriptModel: Model<ScriptDocument>,
     private readonly versionsService: VersionsService,
-    private readonly analysisService: AnalysisService,
+    private readonly jobs: AnalysisJobDispatcher,
   ) {}
 
   async findAll(): Promise<ScriptResponseDto[]> {
@@ -43,7 +43,9 @@ export class ScriptsService {
   }
 
   async create(dto: CreateScriptDto, ownerId: string): Promise<ScriptResponseDto> {
-    const analysis = await this.analysisService.analyze(dto.content);
+    // Async pipeline: persist the version with analysisStatus='pending'
+    // (schema default) and hand the heavy work off to the worker. The HTTP
+    // request returns immediately; the frontend polls until status flips.
     const script = await new this.scriptModel({
       ownerId: new Types.ObjectId(ownerId),
       name: dto.name,
@@ -56,9 +58,9 @@ export class ScriptsService {
       script._id.toString(),
       1,
       dto.content,
-      analysis,
     );
 
+    await this.jobs.dispatch(version._id.toString());
     return this.toDetailDto(script, version);
   }
 
@@ -76,17 +78,16 @@ export class ScriptsService {
     }
 
     const nextVersion = script.currentVersionNumber + 1;
-    const analysis = await this.analysisService.analyze(content);
     const version = await this.versionsService.create(
       scriptId,
       nextVersion,
       content,
-      analysis,
     );
 
     script.currentVersionNumber = nextVersion;
     await script.save();
 
+    await this.jobs.dispatch(version._id.toString());
     return this.toDetailDto(script, version);
   }
 
@@ -107,10 +108,13 @@ export class ScriptsService {
       throw new NotFoundException(`No versions found for script ${id}`);
     }
 
-    const analysis = await this.analysisService.analyze(latest.content);
-    latest.analysis = analysis as unknown as Record<string, unknown>;
+    // Reset state so the frontend immediately reflects "pending" instead of
+    // showing the stale completed analysis until the worker picks it up.
+    latest.analysisStatus = 'pending';
+    latest.analysisError = undefined;
     await latest.save();
 
+    await this.jobs.dispatch(latest._id.toString());
     return this.toDetailDto(script, latest);
   }
 
@@ -174,6 +178,8 @@ export class ScriptsService {
       versionNumber: version.versionNumber,
       content: version.content,
       analysis: version.analysis as VersionSummaryDto['analysis'],
+      analysisStatus: version.analysisStatus,
+      analysisError: version.analysisError,
       createdAt: version.createdAt!,
     };
   }

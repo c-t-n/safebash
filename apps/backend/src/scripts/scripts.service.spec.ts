@@ -4,8 +4,9 @@ import { getModelToken } from '@nestjs/mongoose';
 import { Types } from 'mongoose';
 import { ScriptsService } from './scripts.service';
 import { VersionsService } from './versions.service';
-import { AnalysisService, AnalysisResult } from './analysis.service';
+import { AnalysisResult } from './analysis.service';
 import { Script } from './schemas/script.schema';
+import { AnalysisJobDispatcher } from '../jobs/analysis-job.dispatcher';
 
 const mockAnalysis: AnalysisResult = {
   trustScore: 85,
@@ -55,7 +56,7 @@ const makeVersionDoc = (override: Record<string, unknown> = {}) => ({
 describe('ScriptsService', () => {
   let service: ScriptsService;
   let versionsService: jest.Mocked<VersionsService>;
-  let analysisService: jest.Mocked<AnalysisService>;
+  let jobs: jest.Mocked<AnalysisJobDispatcher>;
 
   const saveMock = jest.fn();
   const mockScriptModel: Record<string, jest.Mock> = {
@@ -80,20 +81,21 @@ describe('ScriptsService', () => {
             findAll: jest.fn(),
             findByNumber: jest.fn(),
             findLatest: jest.fn(),
+            findById: jest.fn(),
             create: jest.fn(),
             deleteAllForScript: jest.fn(),
           },
         },
         {
-          provide: AnalysisService,
-          useValue: { analyze: jest.fn(), analyzeFromUrl: jest.fn() },
+          provide: AnalysisJobDispatcher,
+          useValue: { dispatch: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();
 
     service = module.get<ScriptsService>(ScriptsService);
     versionsService = module.get(VersionsService);
-    analysisService = module.get(AnalysisService);
+    jobs = module.get(AnalysisJobDispatcher);
     jest.clearAllMocks();
   });
 
@@ -155,44 +157,49 @@ describe('ScriptsService', () => {
   });
 
   describe('create', () => {
-    it('creates a script with the given ownerId and returns version 1', async () => {
+    it('creates a script + version with no analysis and dispatches a job', async () => {
       const doc = makeScriptDoc();
-      const version = makeVersionDoc();
+      const version = makeVersionDoc({ analysis: undefined, analysisStatus: 'pending' });
       saveMock.mockResolvedValue(doc);
-      analysisService.analyze.mockResolvedValue(mockAnalysis);
       versionsService.create.mockResolvedValue(version as any);
-      versionsService.findLatest.mockResolvedValue(version as any);
 
       const result = await service.create(
         { name: 'Test Script', content: '#!/bin/bash\nset -e\nsudo apt-get install curl' },
         ownerId,
       );
 
+      // Worker, not the API, runs the analysis — the service must not
+      // pass an analysis blob to versions.create().
       expect(versionsService.create).toHaveBeenCalledWith(
         scriptId,
         1,
         '#!/bin/bash\nset -e\nsudo apt-get install curl',
-        mockAnalysis,
       );
+      expect(jobs.dispatch).toHaveBeenCalledWith(version._id.toString());
       expect(result.ownerId).toBe(ownerId);
       expect(result.currentVersionNumber).toBe(1);
+      expect(result.latestVersion?.analysisStatus).toBe('pending');
     });
   });
 
   describe('addVersion', () => {
-    it('creates a new version when called by the owner', async () => {
+    it('persists a new version with no analysis and dispatches a job', async () => {
       const doc = makeScriptDoc({ currentVersionNumber: 1 });
-      const newVersion = makeVersionDoc({ versionNumber: 2, content: '#!/bin/bash\necho v2' });
+      const newVersion = makeVersionDoc({
+        versionNumber: 2,
+        content: '#!/bin/bash\necho v2',
+        analysis: undefined,
+        analysisStatus: 'pending',
+      });
       mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
-      analysisService.analyze.mockResolvedValue(mockAnalysis);
       versionsService.create.mockResolvedValue(newVersion as any);
 
       const result = await service.addVersion(scriptId, '#!/bin/bash\necho v2', ownerId);
 
-      expect(versionsService.create).toHaveBeenCalledWith(
-        scriptId, 2, '#!/bin/bash\necho v2', mockAnalysis,
-      );
+      expect(versionsService.create).toHaveBeenCalledWith(scriptId, 2, '#!/bin/bash\necho v2');
+      expect(jobs.dispatch).toHaveBeenCalledWith(newVersion._id.toString());
       expect(result.latestVersion?.versionNumber).toBe(2);
+      expect(result.latestVersion?.analysisStatus).toBe('pending');
     });
 
     it('throws ForbiddenException when called by a non-owner', async () => {
@@ -203,6 +210,7 @@ describe('ScriptsService', () => {
         service.addVersion(scriptId, '#!/bin/bash\necho v2', otherUserId),
       ).rejects.toThrow(ForbiddenException);
       expect(versionsService.create).not.toHaveBeenCalled();
+      expect(jobs.dispatch).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when script does not exist', async () => {
@@ -215,21 +223,28 @@ describe('ScriptsService', () => {
   });
 
   describe('reanalyzeLatest', () => {
-    it('re-runs analysis on the latest version and persists the result', async () => {
+    it('flips the latest version back to pending and dispatches a job', async () => {
       const doc = makeScriptDoc();
       const save = jest.fn().mockResolvedValue(undefined);
-      const latest = makeVersionDoc({ save }) as ReturnType<typeof makeVersionDoc> & { save: jest.Mock };
+      const latest = makeVersionDoc({
+        save,
+        analysisStatus: 'completed',
+        analysisError: 'old failure',
+      }) as ReturnType<typeof makeVersionDoc> & {
+        save: jest.Mock;
+        analysisStatus: string;
+        analysisError?: string;
+      };
       mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
       versionsService.findLatest.mockResolvedValue(latest as any);
-      const fresh = { ...mockAnalysis, trustScore: 72 };
-      analysisService.analyze.mockResolvedValue(fresh);
 
       const result = await service.reanalyzeLatest(scriptId, ownerId);
 
-      expect(analysisService.analyze).toHaveBeenCalledWith(latest.content);
       expect(save).toHaveBeenCalled();
-      expect(latest.analysis).toBe(fresh);
-      expect(result.latestVersion?.analysis?.trustScore).toBe(72);
+      expect(latest.analysisStatus).toBe('pending');
+      expect(latest.analysisError).toBeUndefined();
+      expect(jobs.dispatch).toHaveBeenCalledWith(latest._id.toString());
+      expect(result.latestVersion?.analysisStatus).toBe('pending');
     });
 
     it('throws ForbiddenException for non-owners', async () => {
@@ -237,7 +252,7 @@ describe('ScriptsService', () => {
       mockScriptModel.findById.mockReturnValue({ exec: jest.fn().mockResolvedValue(doc) });
 
       await expect(service.reanalyzeLatest(scriptId, otherUserId)).rejects.toThrow(ForbiddenException);
-      expect(analysisService.analyze).not.toHaveBeenCalled();
+      expect(jobs.dispatch).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when the script does not exist', async () => {
