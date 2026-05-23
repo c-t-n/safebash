@@ -16,6 +16,15 @@ export interface LlmLineExplanation {
   plain: string;
 }
 
+export interface LlmFunctionRequest {
+  /** First line of the function definition — used as the routing key. */
+  lineNumber: number;
+  /** Function name (without parens) or '(anonymous)'. */
+  name: string;
+  /** Full source of the function (signature + body, multiple lines). */
+  source: string;
+}
+
 const DEFAULT_URL   = 'http://localhost:11434';
 const DEFAULT_MODEL = 'qwen2.5:3b';
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -87,6 +96,61 @@ export class LlmExplainerClient {
         typeof l.tech === 'string' &&
         typeof l.plain === 'string',
     );
+  }
+
+  /** Explains bash *functions* (multi-line definitions) in one batched call.
+   *  Returns one tech/plain pair per requested function, keyed by its opening
+   *  line number. Same null-on-failure contract as explainLines(). */
+  async explainFunctions(
+    funcs: LlmFunctionRequest[],
+  ): Promise<LlmLineExplanation[] | null> {
+    if (funcs.length === 0) return null;
+    // We deliberately keep the same `lines` wrapper for input and output so
+    // small models (qwen2.5:3b in particular) don't echo the input wrapper
+    // key back. The per-entry fields tell the model these are functions.
+    const payload = funcs.map((f) => ({
+      lineNumber: f.lineNumber,
+      functionName: f.name,
+      bashSource: f.source,
+    }));
+    const text = await this.chat(
+      'For each entry below, explain what the bash function does as a whole — ' +
+        'its overall purpose and effects, not a line-by-line walkthrough. ' +
+        'Each input entry has: lineNumber (the line where the function starts), ' +
+        'functionName, and bashSource (the full multi-line definition).\n\n' +
+        'Respond with JSON of shape ' +
+        '{"lines": [{"lineNumber": number, "tech": string, "plain": string}]}. ' +
+        'Use the exact same "lines" key. Echo each lineNumber unchanged. ' +
+        'Do not include functionName or bashSource in your output.\n\n' +
+        JSON.stringify({ lines: payload }, null, 2),
+    );
+    if (text === null) return null;
+    const parsed = safeJson<Record<string, unknown>>(text);
+    // Some small models stubbornly mirror a different wrapper key; accept any
+    // top-level array so a well-formed payload isn't thrown away.
+    const arr =
+      (parsed && (parsed as { lines?: unknown }).lines) ||
+      (parsed && (parsed as { functions?: unknown }).functions) ||
+      (Array.isArray(parsed) ? parsed : null);
+    if (!Array.isArray(arr)) {
+      this.logger.warn('LLM function explanation response was not in the expected shape.');
+      return null;
+    }
+    const out: LlmLineExplanation[] = [];
+    for (const item of arr) {
+      if (!item || typeof item !== 'object') continue;
+      const o = item as Record<string, unknown>;
+      // Coerce stringy line numbers to int — another common small-model habit.
+      const ln = typeof o.lineNumber === 'number'
+        ? o.lineNumber
+        : typeof o.lineNumber === 'string'
+          ? Number.parseInt(o.lineNumber, 10)
+          : NaN;
+      if (!Number.isFinite(ln)) continue;
+      if (typeof o.tech !== 'string' || typeof o.plain !== 'string') continue;
+      out.push({ lineNumber: ln, tech: o.tech, plain: o.plain });
+    }
+    return out;
   }
 
   private async chat(userMessage: string): Promise<string | null> {
