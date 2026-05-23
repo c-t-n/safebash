@@ -10,6 +10,7 @@ import { ScriptFetcher } from './script-fetcher.service';
 import { Script, ScriptSchema } from './schemas/script.schema';
 import { ScriptVersion, ScriptVersionSchema } from './schemas/script-version.schema';
 import { AuthModule } from '../auth/auth.module';
+import { JobsModule } from '../jobs/jobs.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { AuthModule } from '../auth/auth.module';
       { name: ScriptVersion.name, schema: ScriptVersionSchema },
     ]),
     AuthModule,
+    JobsModule,
   ],
   controllers: [ScriptsController],
   providers: [

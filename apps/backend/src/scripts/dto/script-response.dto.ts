@@ -1,9 +1,12 @@
 import { AnalysisResult } from '../analysis.service';
+import { AnalysisStatus } from '../schemas/script-version.schema';
 
 export class VersionSummaryDto {
   versionNumber: number;
   content: string;
   analysis?: AnalysisResult;
+  analysisStatus: AnalysisStatus;
+  analysisError?: string;
   createdAt: Date;
 }
 

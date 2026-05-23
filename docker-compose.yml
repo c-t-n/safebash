@@ -18,6 +18,22 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: safebash-rabbitmq
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # Management UI (guest / guest)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - safebash-network
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   ollama:
     image: ollama/ollama:latest
     container_name: safebash-ollama
@@ -80,14 +96,47 @@ services:
       - MONGODB_URI=mongodb://mongodb:27017/safebash
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b}
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - ANALYSIS_QUEUE=safebash.analysis
     networks:
       - safebash-network
     depends_on:
       mongodb:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       ollama-pull:
         condition: service_completed_successfully
     command: pnpm --filter @safebash/backend run dev
+
+  # Background analyzer. Same image as the backend, but runs the worker
+  # entry point instead of the HTTP server. Consumes 'analyze-script'
+  # events from RabbitMQ and writes results back to MongoDB.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile.dev
+    container_name: safebash-worker
+    volumes:
+      - ./apps/backend/src:/app/apps/backend/src
+      - ./apps/backend/.env:/app/apps/backend/.env
+    environment:
+      - NODE_ENV=development
+      - MONGODB_URI=mongodb://mongodb:27017/safebash
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:3b}
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - ANALYSIS_QUEUE=safebash.analysis
+    networks:
+      - safebash-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+    command: pnpm --filter @safebash/backend run worker
 
   frontend:
     build:
@@ -116,3 +165,4 @@ networks:
 volumes:
   mongodb_data:
   ollama_models:
+  rabbitmq_data:
